@@ -1,5 +1,5 @@
-// overview-next-edit.browser.mjs — edit mode on the overview at /overview-next, held to 1.3's page
-// (/overview) driven alike, 1.3's page the oracle: every way into and out of it, every way a title is
+// overview-next-edit.browser.mjs — edit mode on the overview at /overview-next, held to what 1.3's page
+// (/overview) gave driven alike: every way into and out of it, every way a title is
 // saved and is not (the series', a gallery's own, a chapter's; typed, emptied, the same text again; left
 // by a press elsewhere or by Done), the tags (a tag and the category pressed: the tag editor on it, its
 // value changed, Remove; Shift: its question, OK and Cancel; "+": a tag added), and the counts after.
@@ -7,12 +7,18 @@
 // Escape in a title are §5.3 F40: held by their own test. Then the case that made 1.3 hold its whole page
 // back after a save (_suppressRenderUntil): a title saved while a change of the same gallery arrives is
 // never drawn back to the old one.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { readDialog, answer, typeInto } from './library-drive.mjs';
-import { openRun, nextBase, gid, visit, read, named, sleep, record, outcome, rowSel, OLD, NEW } from './overview-drive.mjs';
+import { record as kept } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, named, sleep, record, outcome, rowSel, NEW } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 before(async () => {
   if (!chromePath()) return;
@@ -155,8 +161,8 @@ async function run(path, [, opts, steps]) {
 for (const c of CASES) {
   test(c[0], async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const was = await run(OLD, c);
     const now = await run(NEW, c);
+    const was = kept(FILE, 'cases', c[0]);
     assert.deepEqual(now, was);
   });
 }

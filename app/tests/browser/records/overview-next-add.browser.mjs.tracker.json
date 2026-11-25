@@ -1,0 +1,116 @@
+{
+  "steps": [
+    [
+      "the first title under way",
+      [
+        {
+          "state": "running",
+          "kind": "Import",
+          "runner": "app",
+          "name": "2 items",
+          "total": "2 titles · 527B",
+          "lines": [
+            "0 / 2 titles · 0B / 527B",
+            "Now: Next One · page 0 / 2",
+            ""
+          ],
+          "stop": "on",
+          "dismiss": false,
+          "titles": true
+        }
+      ]
+    ],
+    [
+      "the second under way",
+      [
+        {
+          "state": "running",
+          "kind": "Import",
+          "runner": "app",
+          "name": "2 items",
+          "total": "2 titles · 527B",
+          "lines": [
+            "1 / 2 titles · 300B / 527B",
+            "Now: Next Two · page 0 / 1",
+            ""
+          ],
+          "stop": "on",
+          "dismiss": false,
+          "titles": true
+        }
+      ]
+    ],
+    [
+      "Stop pressed",
+      [
+        {
+          "state": "running",
+          "kind": "Import",
+          "runner": "app",
+          "name": "2 items",
+          "total": "2 titles · 527B",
+          "lines": [
+            "1 / 2 titles · 300B / 527B",
+            "Now: Next Two · page 0 / 1",
+            ""
+          ],
+          "stop": "off",
+          "dismiss": false,
+          "titles": true
+        }
+      ]
+    ],
+    [
+      "stopped",
+      [
+        {
+          "state": "stopped",
+          "kind": "Import",
+          "runner": "app",
+          "name": "2 items",
+          "total": "2 titles · 527B",
+          "lines": [
+            "Stopped at 1 of 2 titles. Drop the same files again to carry on.",
+            "",
+            ""
+          ],
+          "stop": null,
+          "dismiss": true,
+          "titles": true
+        }
+      ]
+    ],
+    [
+      "dismissed",
+      []
+    ],
+    [
+      "another, ended with a title failed",
+      [
+        {
+          "state": "done",
+          "kind": "Import",
+          "runner": "app",
+          "name": "2 items",
+          "total": "2 titles · 527B",
+          "lines": [
+            "Imported 1 titles",
+            "",
+            "1 failed"
+          ],
+          "stop": null,
+          "dismiss": true,
+          "titles": true
+        }
+      ]
+    ]
+  ],
+  "said": [
+    {
+      "type": "STOP_JOB",
+      "galleryId": "<batch>",
+      "kind": "import"
+    }
+  ],
+  "problems": []
+}

@@ -1,0 +1,968 @@
+{
+  "S": {
+    "title": "Shiori — Series",
+    "hero": {
+      "title": "S series",
+      "titleId": "seriesTitle",
+      "placeholder": "Series title",
+      "readOnly": true,
+      "titleHref": "/reader?g=<S>",
+      "titleLabel": "S series",
+      "subtitle": "Sシリーズ",
+      "coverHref": "/reader?g=<S>",
+      "cover": true,
+      "backdrop": true,
+      "actions": [
+        {
+          "id": "readStart",
+          "text": "Read from start",
+          "href": "/reader?g=<S>&page=1",
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": null,
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "favToggle",
+          "text": "Add to favorites",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "editToggle",
+          "text": "Edit",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "moveTo",
+          "text": "Move to…",
+          "href": null,
+          "tip": "Move to another library folder",
+          "shift": null,
+          "badge": null,
+          "shown": false,
+          "pressed": null,
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "ovSource",
+          "text": "Source",
+          "href": "https://a.example/g/720",
+          "tip": "Site One: https://a.example/g/720",
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": null,
+          "disabled": false,
+          "target": "_blank",
+          "filled": false
+        }
+      ],
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:45",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "section": {
+      "views": [
+        {
+          "view": "chapters",
+          "text": "chapters",
+          "selected": "true"
+        },
+        {
+          "view": "volumes",
+          "text": "volumes",
+          "selected": "false"
+        }
+      ],
+      "text": null,
+      "count": "4"
+    },
+    "rows": [
+      {
+        "id": "<S>",
+        "state": [],
+        "num": "1",
+        "title": "S gallery",
+        "placeholder": "S gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S>",
+        "titleLabel": "S gallery",
+        "thumbHref": "/reader?g=<S>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#720",
+            "href": "https://a.example/g/720",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      {
+        "id": "<S3>",
+        "state": [],
+        "num": "2.5",
+        "title": "S3 gallery",
+        "placeholder": "S3 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S3>",
+        "titleLabel": "S3 gallery",
+        "thumbHref": "/reader?g=<S3>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#723",
+            "href": null,
+            "cls": null,
+            "target": null
+          },
+          {
+            "text": "1 / 1 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          },
+          {
+            "text": "translated",
+            "href": null,
+            "cls": "done",
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 1 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate any new pages · Right-click: re-run from a stage",
+            "shift": "Revert to original",
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [
+              "done"
+            ],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      {
+        "id": "<X>",
+        "state": [
+          "missing"
+        ],
+        "num": "3",
+        "title": "Gone",
+        "placeholder": "Chapter 3",
+        "readOnly": true,
+        "titleHref": "/reader?g=<X>",
+        "titleLabel": "Gone",
+        "thumbHref": null,
+        "thumbImg": false,
+        "meta": [
+          {
+            "text": "#<X>",
+            "href": null,
+            "cls": null,
+            "target": null
+          },
+          {
+            "text": "missing",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": null,
+        "pages": []
+      }
+    ],
+    "grid": null,
+    "add": {
+      "heading": "Add chapter",
+      "placeholder": "Search by title or gallery ID…",
+      "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+    }
+  },
+  "G": {
+    "title": "Shiori — Series",
+    "hero": {
+      "title": "G gallery",
+      "titleId": "galleryTitle",
+      "placeholder": "Gallery title",
+      "readOnly": true,
+      "titleHref": "/reader?g=<G>",
+      "titleLabel": "G gallery",
+      "subtitle": "Gギャラリー",
+      "coverHref": "/reader?g=<G>",
+      "cover": true,
+      "backdrop": true,
+      "actions": [
+        {
+          "id": "readStart",
+          "text": "Read from start",
+          "href": "/reader?g=<G>&page=1",
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": null,
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "favToggle",
+          "text": "Favorited",
+          "href": null,
+          "tip": "Remove from favorites",
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "true",
+          "disabled": false,
+          "target": null,
+          "filled": true
+        },
+        {
+          "id": "editToggle",
+          "text": "Edit",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "moveTo",
+          "text": "Move to…",
+          "href": null,
+          "tip": "Move to another library folder",
+          "shift": null,
+          "badge": null,
+          "shown": false,
+          "pressed": null,
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "ovSource",
+          "text": "Source",
+          "href": "https://a.example/g/701",
+          "tip": "Site One: https://a.example/g/701",
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": null,
+          "disabled": false,
+          "target": "_blank",
+          "filled": false
+        }
+      ],
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 / 4 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "5.1KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "17.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t15.2KB\nOther data\t2.6KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          },
+          {
+            "text": "translated",
+            "icon": true,
+            "cls": "done",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2023/11/15 06:13",
+            "icon": true,
+            "cls": "",
+            "tip": "Posted · 3 years ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "2026/09/22 00:45",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "section": {
+      "views": [],
+      "text": "pages",
+      "count": "3"
+    },
+    "rows": [],
+    "grid": {
+      "tiles": [
+        {
+          "href": "/reader?g=<G>&page=1",
+          "num": "1"
+        },
+        {
+          "href": "/reader?g=<G>&page=2",
+          "num": "2"
+        },
+        {
+          "href": "/reader?g=<G>&page=3",
+          "num": "3"
+        }
+      ],
+      "empty": null
+    },
+    "add": {
+      "heading": "Add chapter",
+      "placeholder": "Search by title or gallery ID…",
+      "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+    }
+  }
+}

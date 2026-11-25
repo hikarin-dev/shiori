@@ -1,5 +1,5 @@
-// overview-next-add.browser.mjs — the add-a-chapter bar at /overview-next, held to 1.3's page (/overview)
-// driven alike, 1.3's page the oracle. The search: by a title, by an id, nothing found, typed fast, the box
+// overview-next-add.browser.mjs — the add-a-chapter bar at /overview-next, held to what 1.3's page
+// (/overview) gave driven alike. The search: by a title, by an id, nothing found, typed fast, the box
 // emptied, focus coming back with words in the box, a press outside, keys (none do anything: 1.3's list
 // had none); a result pressed (a gallery, a series of the library, on a gallery that is no series, in
 // the volumes' view, refused). Files dropped on the bar: one archive, two (asked first: OK, Cancel), a
@@ -9,17 +9,22 @@
 // shows (each result's title, id and cover), every dialog, the imports' tracker as it ends, the rows
 // the page shows and what the library holds after. Any difference from 1.3's fails, but those named
 // here (§5.3's rows).
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { readDialog, answer } from './library-drive.mjs';
-import { openRun, nextBase, gid, visit, read, named, sleep, record, OLD, NEW } from './overview-drive.mjs';
+import { record as kept } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, named, sleep, record, NEW } from './overview-drive.mjs';
 import { zipCreate } from '../../js/zip.js';
 
+const FILE = path.basename(fileURLToPath(import.meta.url));
 let server, origin, browser, dir;
 const at = (name) => path.join(dir, name);
 
@@ -223,8 +228,9 @@ function panels() {
 
 test('the imports’ tracker: a batch begun on the page, each of its states, Stop, its end, Dismiss', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const where of [OLD, NEW]) {
+  let now;
+  {
+    const where = NEW;
     const base = nextBase(1790018000000);
     const context = await browser.createBrowserContext();
     const page = await openRun(context, origin, base);
@@ -256,13 +262,13 @@ test('the imports’ tracker: a batch begun on the page, each of its states, Sto
     // Another batch, ended with a title failed.
     await tell({ ...job, gid: `${id}-b`, status: 'done', done: 2, imported: 1, failed: 1, bytesDone: 527, current: null });
     await look('another, ended with a title failed');
-    out[where] = { steps, said: said.map((m) => ({ ...m, galleryId: m.galleryId === id ? '<batch>' : m.galleryId })), problems: page.problems };
+    now = { steps, said: said.map((m) => ({ ...m, galleryId: m.galleryId === id ? '<batch>' : m.galleryId })), problems: page.problems };
     await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
     await context.close();
   }
-  if (process.env.DUMP) console.log(JSON.stringify(out[OLD]));
-  assert.deepEqual(out[NEW], out[OLD]);
-  assert.equal(out[NEW].said.length, 1, 'Stop said once');
+  const was = kept(FILE, 'tracker');
+  assert.deepEqual(now, was);
+  assert.equal(now.said.length, 1, 'Stop said once');
 });
 
 // ── Live: a gallery added drawn in the frame of the press, taken off again when refused ──
@@ -338,9 +344,8 @@ async function run(where, [, opts, steps]) {
 for (const c of CASES) {
   test(c[0], async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const was = await run(OLD, c);
     const now = await run(NEW, c);
-    if (process.env.DUMP) console.log(JSON.stringify(was));
+    const was = kept(FILE, 'cases', c[0]);
     c[1].differs?.(was);
     assert.deepEqual(now, was);
   });

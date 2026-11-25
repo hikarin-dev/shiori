@@ -1,0 +1,10 @@
+{
+  "inside": true,
+  "steps": [
+    "Text detectionNot possible: no saved earlier steps — translate first",
+    "Text recognition (OCR)Not possible: no saved earlier steps — translate first",
+    "TranslationNot possible: no saved earlier steps — translate first",
+    "InpaintingNot possible: no saved earlier steps — translate first",
+    "RenderingNot possible: no saved earlier steps — translate first"
+  ]
+}

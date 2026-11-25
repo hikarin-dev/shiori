@@ -1,15 +1,21 @@
-// overview-next-jobs.browser.mjs — jobs drawn on the overview's rows at /overview-next, held against
-// 1.3's page (/overview) driven alike, 1.3's page the oracle: every state of a download (started, its
+// overview-next-jobs.browser.mjs — jobs drawn on the overview's rows at /overview-next, held to what
+// 1.3's page (/overview) gave driven alike: every state of a download (started, its
 // bytes with and without a size, extracting, its pages, done and the 4 s it stays, then at rest), an
 // import (started, its pages, failed), a translation (started, its figure, done with what failed and
 // what went stale, stopped), word by word: the row's state, its bar's words, its buttons (Stop, off, ✓,
 // tips); the hero's details as the chapter's pages come; a job under way as the page opens, and one
 // left from before that is an interruption; another gallery's word drawing nothing on the row.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
-import { openRun, nextBase, gid, visit, read, named, sleep, publish, OLD, NEW } from './overview-drive.mjs';
+import { record } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, named, sleep, publish, NEW } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, page, base;
 
 before(async () => {
@@ -25,7 +31,8 @@ const clearJobs = () => page.evaluate(async () => { const platform = await impor
 
 // The row of chapter S2 (and the hero's details) as each word of `steps` is said: each read once the
 // row shows the word (its bar's words changed, or at rest again), a moment after.
-async function drive(path, steps) {
+async function drive(steps) {
+  const path = NEW;
   await clearJobs();
   await visit(page, origin, path, gid(base, 'S'));
   const out = [];
@@ -77,8 +84,9 @@ const TRANSLATE = [
 ];
 
 for (const [what, steps] of [['a download', DOWNLOAD], ['an import', UPLOAD], ['a translation', TRANSLATE]]) {
-  test(`${what}, word by word: the same on both pages`, { skip: !chromePath() }, async () => {
-    const old = await drive(OLD, steps), now = await drive(NEW, steps);
+  test(`${what}, word by word: as on 1.3's page`, { skip: !chromePath() }, async () => {
+    const now = await drive(steps);
+    const old = record(FILE, 'words', what);
     for (let i = 0; i < steps.length; i++) assert.deepEqual(now[i], old[i], `after ${JSON.stringify(old[i].step)}`);
     // What it said is a job's, not nothing.
     assert.ok(old.some((x) => x.row.progress?.label), 'the row showed its job');
@@ -87,28 +95,29 @@ for (const [what, steps] of [['a download', DOWNLOAD], ['an import', UPLOAD], ['
   });
 }
 
-test('a job under way as the page opens, and one left from before (an interruption): the same on both pages', { skip: !chromePath() }, async () => {
+test('a job under way as the page opens, and one left from before (an interruption): as on 1.3\'s page', { skip: !chromePath() }, async () => {
   const seed = (stale) => page.evaluate(async ({ gid, stale }) => {
     const platform = await import('/app/js/platform.js');
     const now = Date.now;
     if (stale) Date.now = () => now() - 5 * 60 * 1000;
     try { await platform.jobs.publish({ gid, kind: 'download', status: 'downloading', downloaded: 1_000_000, total: 4_000_000, pages: 8 }); } finally { Date.now = now; }
   }, { gid: gid(base, 'S2'), stale });
-  const got = {};
+  const now = {};
   for (const stale of [false, true]) {
-    for (const path of [OLD, NEW]) {
-      await clearJobs();
-      await seed(stale);
-      await visit(page, origin, path, gid(base, 'S'));
-      await until(page, () => !!document.querySelector('.ch-row.working'), null, { what: `${path}: the job drawn` });
-      await sleep(300);
-      got[`${stale} ${path}`] = named(await page.evaluate(read), base).rows[1];
-      // An interruption is cleared from the registry as the page opens.
-      if (stale) assert.equal(await page.evaluate(async () => (await (await import('/app/js/platform.js')).jobs.current()).length), 0, `${path}: the interruption's row cleared`);
-    }
-    assert.deepEqual(got[`${stale} ${NEW}`], got[`${stale} ${OLD}`]);
+    await clearJobs();
+    await seed(stale);
+    await visit(page, origin, NEW, gid(base, 'S'));
+    await until(page, () => !!document.querySelector('.ch-row.working'), null, { what: 'the job drawn' });
+    await sleep(300);
+    // The row, and (an interruption) the registry's entries left as the page opens.
+    now[stale] = { row: named(await page.evaluate(read), base).rows[1],
+      left: stale ? await page.evaluate(async () => (await (await import('/app/js/platform.js')).jobs.current()).length) : null };
   }
-  assert.match(got[`true ${OLD}`].progress.label, /Interrupted/i);
-  assert.match(got[`false ${OLD}`].progress.label, /^~2 \/ 8/);
+  const was = record(FILE, 'at-load');
+  assert.deepEqual(now, was);
+  // An interruption is cleared from the registry as the page opens.
+  assert.equal(was.true.left, 0, 'the interruption\'s row cleared');
+  assert.match(was.true.row.progress.label, /Interrupted/i);
+  assert.match(was.false.row.progress.label, /^~2 \/ 8/);
   await clearJobs();
 });

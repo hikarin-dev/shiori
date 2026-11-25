@@ -1,0 +1,1486 @@
+{
+  "a search by a title: the first eight, the series' own left out": {
+    "seen": [
+      {
+        "list": {
+          "open": true,
+          "rows": [
+            {
+              "title": "F gallery",
+              "id": "#<F>",
+              "cover": true
+            },
+            {
+              "title": "E gallery",
+              "id": "#740",
+              "cover": false
+            },
+            {
+              "title": "W gallery",
+              "id": "#<W>",
+              "cover": true
+            },
+            {
+              "title": "G gallery",
+              "id": "#701",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "gallery",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a search by an id": {
+    "seen": [
+      {
+        "list": {
+          "open": true,
+          "rows": [
+            {
+              "title": "F gallery",
+              "id": "#<F>",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "<F>",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a search that finds nothing": {
+    "seen": [
+      {
+        "list": {
+          "open": true,
+          "rows": [],
+          "empty": "No matching galleries.",
+          "value": "nothing like it",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "the box emptied: the list closes": {
+    "seen": [
+      {
+        "list": {
+          "open": true,
+          "rows": [
+            {
+              "title": "F gallery",
+              "id": "#<F>",
+              "cover": true
+            },
+            {
+              "title": "E gallery",
+              "id": "#740",
+              "cover": false
+            },
+            {
+              "title": "W gallery",
+              "id": "#<W>",
+              "cover": true
+            },
+            {
+              "title": "G gallery",
+              "id": "#701",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "gallery",
+          "lit": false
+        }
+      },
+      {
+        "emptied": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a press outside closes it; focus back with words in the box opens it again": {
+    "seen": [
+      {
+        "list": {
+          "open": true,
+          "rows": [
+            {
+              "title": "F gallery",
+              "id": "#<F>",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "F gal",
+          "lit": false
+        }
+      },
+      {
+        "pressed outside": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "F gal",
+          "lit": false
+        }
+      },
+      {
+        "focused again": {
+          "open": true,
+          "rows": [
+            {
+              "title": "F gallery",
+              "id": "#<F>",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "F gal",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "keys in the box: the arrows, Enter and Escape do nothing to the list": {
+    "seen": [
+      {
+        "after the keys": {
+          "open": true,
+          "rows": [
+            {
+              "title": "F gallery",
+              "id": "#<F>",
+              "cover": true
+            },
+            {
+              "title": "E gallery",
+              "id": "#740",
+              "cover": false
+            },
+            {
+              "title": "W gallery",
+              "id": "#<W>",
+              "cover": true
+            },
+            {
+              "title": "G gallery",
+              "id": "#701",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "gallery",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a result pressed: the next chapter": {
+    "seen": [
+      {
+        "after": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "F gallery \"F gallery\" 1p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "5"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 F gallery"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a series of the library pressed: its members brought in": {
+    "seen": [
+      {
+        "list": {
+          "open": true,
+          "rows": [
+            {
+              "title": "W gallery",
+              "id": "#<W>",
+              "cover": true
+            }
+          ],
+          "empty": null,
+          "value": "W gal",
+          "lit": false
+        }
+      },
+      {
+        "after": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "W gallery (volume) 1p",
+        "W2 gallery (volume) 1p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "on a gallery that is no series: it becomes one": {
+    "seen": [
+      {
+        "after": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "F gallery \"F gallery\" 1p",
+        "E gallery \"E gallery\" 0p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "F gallery",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "2"
+      },
+      "rows": [
+        "1 F gallery",
+        "2 E gallery"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "in the volumes' view: added as its own kind": {
+    "seen": [
+      {
+        "after": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "F gallery \"F gallery\" 1p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "false"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "true"
+          }
+        ],
+        "text": null,
+        "count": "2"
+      },
+      "rows": [
+        "1 V1 gallery",
+        "2 Volume two"
+      ],
+      "add": {
+        "heading": "Add volume",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "the addition refused: told so, nothing added": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Couldn’t add the chapter",
+          "body": null,
+          "detail": [
+            "This folder is in use by another app."
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      },
+      {
+        "after": {
+          "open": false,
+          "rows": [],
+          "empty": null,
+          "value": "",
+          "lit": false
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "files over the bar light it, not text; gone on leaving and on a drop; over the page elsewhere, not": {
+    "seen": [
+      {
+        "text over it": {
+          "lit": false,
+          "frame": "rgb(42, 42, 48)",
+          "ground": "rgba(0, 0, 0, 0)"
+        }
+      },
+      {
+        "files over the page elsewhere": {
+          "lit": false,
+          "frame": "rgb(42, 42, 48)",
+          "ground": "rgba(0, 0, 0, 0)"
+        }
+      },
+      {
+        "files over it": {
+          "lit": true,
+          "frame": "rgb(237, 39, 84)",
+          "ground": "rgba(237, 39, 84, 0.06)"
+        }
+      },
+      {
+        "files over its heading": {
+          "lit": true,
+          "frame": "rgb(237, 39, 84)",
+          "ground": "rgba(237, 39, 84, 0.06)"
+        }
+      },
+      {
+        "the drag gone": {
+          "lit": false,
+          "frame": "rgb(42, 42, 48)",
+          "ground": "rgba(0, 0, 0, 0)"
+        }
+      },
+      {
+        "files again": {
+          "lit": true,
+          "frame": "rgb(237, 39, 84)",
+          "ground": "rgba(237, 39, 84, 0.06)"
+        }
+      },
+      {
+        "dropped": {
+          "lit": false,
+          "frame": "rgb(42, 42, 48)",
+          "ground": "rgba(0, 0, 0, 0)"
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Pic \"Pic\" 1p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "5"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 Pic (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of one archive: the next chapter": {
+    "seen": [],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Next One \"Next One\" 2p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "5"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 Next One (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of two archives: asked first, OK": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 527B\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Next One \"Next One\" 2p",
+        "Next Two \"Next Two\" 1p"
+      ],
+      "galleries": 12
+    },
+    "tracker": [
+      "done | 2 items | Imported 2 titles | "
+    ],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "6"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 Next One (working)",
+        "6 Next Two (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of two archives: asked first, Cancel": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 527B\nTitles already in your library are skipped.\nIt runs in the background: any open Shiori tab keeps it going, and closing them all stops it within a few minutes.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of a folder of pictures: one chapter": {
+    "seen": [],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Loose pages \"Loose pages\" 2p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "5"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 Loose pages (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of a file that is neither: told so": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "This file can’t be added",
+          "body": "Only .cbz or .zip archives, PDFs and images (JPG, PNG, WebP, GIF, AVIF) can be added as chapters.",
+          "detail": [
+            "notes.txt"
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of an archive and a file that is neither": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "This file can’t be added",
+          "body": "Only .cbz or .zip archives, PDFs and images (JPG, PNG, WebP, GIF, AVIF) can be added as chapters.",
+          "detail": [
+            "notes.txt"
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Next Two \"Next Two\" 1p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "5"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 Next Two (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of an archive that cannot be read: told so": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Couldn’t import it",
+          "body": "Not a valid ZIP file",
+          "detail": [
+            "broken"
+          ],
+          "tone": "error",
+          "buttons": [
+            "OK"
+          ]
+        }
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop in the volumes' view: a volume": {
+    "seen": [],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Next One (volume) \"Next One\" 2p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "false"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "true"
+          }
+        ],
+        "text": null,
+        "count": "3"
+      },
+      "rows": [
+        "1 V1 gallery",
+        "2 Volume two",
+        "3 Next One (working)"
+      ],
+      "add": {
+        "heading": "Add volume",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop on a gallery that is no series: it becomes one": {
+    "seen": [],
+    "holds": {
+      "series": true,
+      "members": [
+        "F gallery \"F gallery\" 1p",
+        "Next One \"Next One\" 2p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "F gallery",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "2"
+      },
+      "rows": [
+        "1 F gallery",
+        "2 Next One (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop without the helper": {
+    "seen": [],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p",
+        "Next Two \"Next Two\" 1p"
+      ],
+      "galleries": 11
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "5"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)",
+        "5 Next Two (working)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  },
+  "a drop of two handed to the desktop app's runner": {
+    "seen": [
+      {
+        "dialog": {
+          "title": "Import “2 items”?",
+          "body": "2 titles · 527B\nTitles already in your library are skipped.",
+          "detail": [],
+          "tone": null,
+          "buttons": [
+            "Cancel",
+            "Import 2 titles"
+          ]
+        }
+      },
+      {
+        "handed": [
+          {
+            "name": "2 items",
+            "attachTo": "<S>",
+            "meta": {},
+            "groups": [
+              [
+                "Next One.cbz",
+                1
+              ],
+              [
+                "Next Two.cbz",
+                1
+              ]
+            ]
+          }
+        ]
+      }
+    ],
+    "holds": {
+      "series": true,
+      "members": [
+        "S gallery 2p",
+        "S2 gallery \"The second\" 2p",
+        "S3 gallery 1p",
+        "V1 gallery (volume) 1p",
+        "V2 gallery (volume) \"Volume two\" 2p",
+        "null \"Gone\" -p"
+      ],
+      "galleries": 10
+    },
+    "tracker": [],
+    "shown": {
+      "title": "S series",
+      "section": {
+        "views": [
+          {
+            "view": "chapters",
+            "text": "chapters",
+            "selected": "true"
+          },
+          {
+            "view": "volumes",
+            "text": "volumes",
+            "selected": "false"
+          }
+        ],
+        "text": null,
+        "count": "4"
+      },
+      "rows": [
+        "1 S gallery",
+        "2 The second",
+        "2.5 S3 gallery",
+        "3 Gone (missing)"
+      ],
+      "add": {
+        "heading": "Add chapter",
+        "placeholder": "Search by title or gallery ID…",
+        "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+      }
+    },
+    "problems": []
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "trail": true,
+  "othersEased": true,
+  "before": "<S>,<S2>,<S3>,<X>",
+  "dropFrame": {
+    "dom": "<S2>,<S3>,<X>,<S>",
+    "moving": [
+      "<S>"
+    ]
+  },
+  "settled": true,
+  "kept": true,
+  "problems": []
+}

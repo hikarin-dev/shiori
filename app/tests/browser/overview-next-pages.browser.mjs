@@ -1,17 +1,23 @@
 // overview-next-pages.browser.mjs — the overview's page grid and its thumbnails at /overview-next, held
-// against 1.3's page (/overview) driven alike, 1.3's page the oracle (its own measures are
-// overview-pages.browser.mjs's, run here on both pages too): which copy each tile gets at the grid's
+// to what 1.3's page (/overview) gave driven alike (its own measures are overview-pages.browser.mjs's,
+// run here too): which copy each tile gets at the grid's
 // tile width and at twice the pixel ratio; the tiles in view first; the warm-up making every tile's copy
 // ahead, each once; the two bands (a tile far from view lets its picture go, one within 5,400px keeps
 // it, scrolled back the copies made show again with none made twice); a tile with no copy yet showing
 // its ground, never a broken image; and, the page left (a route change), its workers ended and every
 // copy's object URL revoked. Then leaving the page five times with a chapter's pages open and a job
 // running leaves nothing behind (listeners, intervals, observers, channels, workers, object URLs).
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
-import { openRun, nextBase, gid, visit, sleep, publish, OLD, NEW } from './overview-drive.mjs';
+import { record } from './records.mjs';
+import { openRun, nextBase, gid, visit, sleep, publish, NEW } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 const COUNT = 400;
 let server, origin, browser, base, long;
 
@@ -66,35 +72,36 @@ async function open(path, { scale = 1 } = {}) {
 }
 const inView = () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
 
-test('each tile\'s copy: 1.5 times its pixels, stepped; at twice the pixel ratio, twice; the tiles in view first: the same on both pages', { skip: !chromePath() }, async () => {
-  const got = {};
+test('each tile\'s copy: 1.5 times its pixels, stepped; at twice the pixel ratio, twice; the tiles in view first: as on 1.3\'s page', { skip: !chromePath() }, async () => {
+  const now = {};
   for (const scale of [1, 2]) {
-    for (const path of [OLD, NEW]) {
-      const page = await open(path, { scale });
-      await until(page, () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).every((img) => img.dataset.ready), null, { what: `${path}: the tiles in view` });
-      got[`${scale} ${path}`] = await page.evaluate((src) => {
-        const view = (0, eval)(`(${src})`)();
-        const shown = new Set(view.map((img) => Number(img.dataset.pageNum)));
-        const first = window.__thumbs.order.slice(0, shown.size);
-        return { tile: Math.round(view[0].parentElement.clientWidth * 100) / 100, widths: [...new Set(view.map((img) => img.dataset.width))], inView: shown.size,
-          firstInView: first.filter((n) => shown.has(n)).length };
-      }, inView.toString());
-      assert.deepEqual(page.problems, []);
-      await page.close();
-    }
-    // (Which of them came first is the copies' finishing order: compared by its bound below.)
-    const same = ({ firstInView, ...rest }) => rest;
-    assert.deepEqual(same(got[`${scale} ${NEW}`]), same(got[`${scale} ${OLD}`]));
+    const page = await open(NEW, { scale });
+    await until(page, () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).every((img) => img.dataset.ready), null, { what: 'the tiles in view' });
+    now[scale] = await page.evaluate((src) => {
+      const view = (0, eval)(`(${src})`)();
+      const shown = new Set(view.map((img) => Number(img.dataset.pageNum)));
+      const first = window.__thumbs.order.slice(0, shown.size);
+      // (Which of them came first is the copies' finishing order, which differs run to run: held by its
+      // bound, nearly all of the first pictures shown were tiles in view, a few copies running at once.)
+      const firstInView = first.filter((n) => shown.has(n)).length;
+      return { tile: Math.round(view[0].parentElement.clientWidth * 100) / 100, widths: [...new Set(view.map((img) => img.dataset.width))], inView: shown.size,
+        viewFirst: firstInView >= shown.size - 8 };
+    }, inView.toString());
+    assert.deepEqual(page.problems, []);
+    await page.close();
   }
-  assert.deepEqual(got[`1 ${OLD}`].widths, ['192']);
-  assert.deepEqual(got[`2 ${OLD}`].widths, ['384']);
-  // Of the first pictures shown, nearly all were tiles in view (a few copies run at once).
-  for (const key of Object.keys(got)) assert.ok(got[key].firstInView >= got[key].inView - 8, `${key}: ${JSON.stringify(got[key])}`);
+  const was = record(FILE, 'copies');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was[1].widths, ['192']);
+  assert.deepEqual(was[2].widths, ['384']);
+  // Of the first pictures shown, nearly all were tiles in view.
+  assert.deepEqual([was[1].viewFirst, was[2].viewFirst], [true, true]);
 });
 
 test('the warm-up makes every tile\'s copy ahead, each once; far from view a tile lets its picture go, within 5,400px it keeps it; back again, none made twice', { skip: !chromePath() }, async () => {
-  const got = {};
-  for (const path of [OLD, NEW]) {
+  let now;
+  {
+    const path = NEW;
     const page = await open(path);
     await until(page, (n) => window.__thumbs.posted.length >= n, COUNT, { what: `${path}: every copy made`, timeout: 120000 });
     await sleep(1000);
@@ -111,18 +118,20 @@ test('the warm-up makes every tile\'s copy ahead, each once; far from view a til
     await page.evaluate(() => scrollTo(0, 0));
     await until(page, () => [...document.querySelectorAll('#ovPages .ov-page img')].filter((img) => { const r = img.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; }).every((img) => img.getAttribute('src')), null, { what: `${path}: the top again` });
     await sleep(500);
-    got[path] = { made, kept, after: await page.evaluate(() => window.__thumbs.posted.length) };
+    now = { made, kept, after: await page.evaluate(() => window.__thumbs.posted.length) };
     assert.deepEqual(page.problems, []);
     await page.close();
   }
-  assert.deepEqual(got[NEW], got[OLD]);
-  assert.equal(got[OLD].made, COUNT, 'each tile\'s copy made once');
-  assert.equal(got[OLD].after, COUNT, 'none made again on the way back');
-  assert.ok(got[OLD].kept.firstPainted > 1 && got[OLD].kept.painted < COUNT, JSON.stringify(got[OLD].kept));
+  const was = record(FILE, 'warm');
+  assert.deepEqual(now, was);
+  assert.equal(was.made, COUNT, 'each tile\'s copy made once');
+  assert.equal(was.after, COUNT, 'none made again on the way back');
+  assert.ok(was.kept.firstPainted > 1 && was.kept.painted < COUNT, JSON.stringify(was.kept));
 });
 
-// 1.3's own measures (overview-pages.browser.mjs), on both pages: scrolled at 12,000px a second, no tile
-// draws a broken image; with a moment for the warm-up first, the tiles scrolled to show their copies.
+// 1.3's own measures (overview-pages.browser.mjs; 1.3's page met them too): scrolled at 12,000px a
+// second, no tile draws a broken image; with a moment for the warm-up first, the tiles scrolled to show
+// their copies.
 function scrollToEnd(page, pxPerSec) {
   return page.evaluate(async (pxPerSec) => {
     const raf = () => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -144,8 +153,8 @@ function scrollToEnd(page, pxPerSec) {
     return { blank: blank / Math.max(1, tiles), glyph };
   }, pxPerSec);
 }
-test('a tile with no copy yet shows its ground; made ahead, the tiles scrolled to show theirs: on both pages', { skip: !chromePath() }, async () => {
-  for (const path of [OLD, NEW]) {
+test('a tile with no copy yet shows its ground; made ahead, the tiles scrolled to show theirs', { skip: !chromePath() }, async () => {
+  for (const path of [NEW]) {
     let page = await open(path);
     assert.equal((await scrollToEnd(page, 12000)).glyph, 0, `${path}: no broken image`);
     await page.close();

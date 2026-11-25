@@ -1,0 +1,4112 @@
+{
+  "a download": [
+    {
+      "step": {
+        "kind": "download",
+        "status": "started",
+        "labelKey": "prog.fetching_meta"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Fetching metadata…",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Stop downloading",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "download",
+        "status": "downloading",
+        "downloaded": 0,
+        "total": 0
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "↓ 0B",
+          "fill": "moving",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Stop downloading",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "download",
+        "status": "downloading",
+        "downloaded": 2000000,
+        "total": 8000000,
+        "pages": 12
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "~3 / 12 · 1.9MB",
+          "fill": "21%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Stop downloading",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "download",
+        "status": "extracting"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Extracting…",
+          "fill": "85%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Stop downloading",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "download",
+        "status": "progress",
+        "done": 5,
+        "total": 12,
+        "labelKey": "prog.saving"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "prog.saving · 5/12",
+          "fill": "91%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Stop downloading",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "translate",
+        "status": "progress",
+        "done": 1,
+        "total": 2
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "prog.saving · 5/12",
+          "fill": "91%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Stop downloading",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "download",
+        "status": "done",
+        "done": 12,
+        "total": 12,
+        "skipped": 2
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Done — 12/12 (2 already cached)",
+          "fill": "100%",
+          "done": true
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "done"
+            ],
+            "face": "✓"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": "wait 4500",
+      "row": {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    }
+  ],
+  "an import": [
+    {
+      "step": {
+        "kind": "upload",
+        "status": "started",
+        "label": "Reading the file…"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Reading the file…",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "upload",
+        "status": "progress",
+        "done": 3,
+        "total": 9
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "3 / 9",
+          "fill": "33%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "upload",
+        "status": "error",
+        "error": "it broke"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Error: it broke",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": "wait 4500",
+      "row": {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "upload",
+        "status": "started",
+        "labelKey": "prog.starting"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Starting…",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "upload",
+        "status": "done",
+        "done": 9,
+        "total": 9
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Done — 9/9",
+          "fill": "100%",
+          "done": true
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [
+              "done"
+            ],
+            "face": "✓"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": "wait 4500",
+      "row": {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    }
+  ],
+  "a translation": [
+    {
+      "step": {
+        "kind": "translate",
+        "status": "started"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Starting…",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Stop translating",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "translate",
+        "status": "progress",
+        "done": 1,
+        "total": 4,
+        "pct": 37
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Translating… 1 / 4",
+          "fill": "37%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Stop translating",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "translate",
+        "status": "progress",
+        "done": 2,
+        "total": 4
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Translating… 2 / 4",
+          "fill": "50%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Stop translating",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "translate",
+        "status": "done",
+        "done": 3,
+        "total": 4,
+        "failed": 1,
+        "stale": 2
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Translated 3/4 (1 failed) · Skipped (picture changed): 2",
+          "fill": "75%",
+          "done": true
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": "wait 4500",
+      "row": {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "translate",
+        "status": "started",
+        "total": 4
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "0 / 4",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Stop translating",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [
+              "cancelling"
+            ],
+            "face": "rect"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": {
+        "kind": "translate",
+        "status": "cancelled"
+      },
+      "row": {
+        "id": "<S2>",
+        "state": [
+          "working"
+        ],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": {
+          "label": "Cancelled",
+          "fill": "0%",
+          "done": false
+        },
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    },
+    {
+      "step": "wait 4500",
+      "row": {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:51",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ]
+    }
+  ]
+}

@@ -1,32 +1,36 @@
 // overview-next-live.browser.mjs — the overview at /overview-next under a library that changes, held
-// against 1.3's (/overview) driven alike, 1.3's page the oracle. Each page is shown over a run's library
-// of its own (the same galleries under other ids) while a tab behind it makes the same changes there
-// (another context, as a download's runner or another window is). After each kind of change both pages
-// read the same (words, links, tips, rows in order), and of what was there before, the new page leaves
-// every row the change did not reach as the same node with its subtree untouched, keeps its cover
-// pictures (no <img> put in again), and touches no more parts than 1.3's page did; a row that moved
-// slides to its place on both. The series: a chapter's title (1.3 misses it: a fault, not copied), its
-// pages, its translation, the series' title, its tags, the favourite, its order, a chapter added, one
-// removed. The gallery: its title, a page added (a tile more in its grid), the favourite, becoming a
-// series and a gallery again.
+// to what 1.3's (/overview) gave driven alike. The page is shown over a run's library while a tab behind
+// it makes the changes there (another context, as a download's runner or another window is). After each
+// kind of change the page reads as 1.3's did (words, links, tips, rows in order), and of what was there
+// before, it leaves every row the change did not reach as the same node with its subtree untouched, keeps
+// its cover pictures (no <img> put in again), and touches no more parts than 1.3's page did; a row that
+// moved slides to its place as on 1.3's. The series: a chapter's title (1.3 misses it: a fault, not
+// copied), its pages, its translation, the series' title, its tags, the favourite, its order, a chapter
+// added, one removed. The gallery: its title, a page added (a tile more in its grid), the favourite,
+// becoming a series and a gallery again.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
+// (1.3's page missed a change marked `missed`: it was read 2.5 s after the change, then loaded again to
+// go on from the same library.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
-import { openRun, nextBase, gid, visit, read, named, sleep, OLD, NEW, PARTS } from './overview-drive.mjs';
+import { record } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, named, sleep, NEW, PARTS } from './overview-drive.mjs';
 
-let server, origin, browser;
-const runs = {};
+const FILE = basename(fileURLToPath(import.meta.url));
+let server, origin, browser, run;
 
 before(async () => {
   if (!chromePath()) return;
   ({ server, origin } = await startServer());
   browser = await launch();
-  for (const path of [OLD, NEW]) {
-    const base = nextBase(1790009300000);
-    const maker = await openRun(browser, origin, base);
-    const page = await openPage(browser, origin);
-    runs[path] = { base, maker, page };
-  }
+  const base = nextBase(1790009300000);
+  const maker = await openRun(browser, origin, base);
+  const page = await openPage(browser, origin);
+  run = { base, maker, page };
 });
 after(async () => { await browser?.close(); server?.close(); });
 
@@ -129,27 +133,21 @@ const GALLERY = [
 
 const shows = (page, c) => (c.title ? page.evaluate(hasTitle, c.title) : page.evaluate(c.done));
 
-// The page at `path` shown on `part`, and each change made in turn: what it reads and what it changed.
-async function drive(path, part, changes) {
-  const { base, maker, page } = runs[path];
+// The page shown on `part`, and each change made in turn: what it reads and what it changed.
+async function drive(part, changes) {
+  const { base, maker, page } = run;
   const id = Object.fromEntries(Object.entries(PARTS).map(([p, n]) => [p, String(base + n)]));
   await page.bringToFront();
-  await visit(page, origin, path, gid(base, part));
-  await until(page, () => document.querySelector('#seriesCover img')?.complete, null, { what: `${path}: the cover` });
+  await visit(page, origin, NEW, gid(base, part));
+  await until(page, () => document.querySelector('#seriesCover img')?.complete, null, { what: 'the cover' });
   await page.evaluate(watch);
   const out = [];
   for (const c of changes) {
     await maker.evaluate(c.make, { id });
-    if (c.missed && path === OLD) await sleep(2500);
-    else if (c.missed && !c.title) await until(page, c.done, null, { what: `${path}: ${c.name} drawn` });
-    else if (c.title) await until(page, hasTitle, c.title, { what: `${path}: ${c.name} drawn` });
-    else await until(page, c.done, null, { what: `${path}: ${c.name} drawn` });
+    if (c.title) await until(page, hasTitle, c.title, { what: `${c.name} drawn` });
+    else await until(page, c.done, null, { what: `${c.name} drawn` });
     await sleep(1200);
     out.push({ name: c.name, shown: await shows(page, c), read: named(await page.evaluate(read), base), seen: named(await page.evaluate(seen), base) });
-    if (c.missed && path === OLD) {   // (1.3's page loaded again, to go on from the same library)
-      await visit(page, origin, path, gid(base, part));
-      await until(page, () => document.querySelector('#seriesCover img')?.complete, null, { what: `${path}: the cover` });
-    }
     await page.evaluate(watch);
   }
   assert.deepEqual(page.problems, []);
@@ -175,7 +173,8 @@ function held(old, now, c) {
 }
 
 test('the series: each kind of change drawn as 1.3 draws it, touching no more', { skip: !chromePath() }, async () => {
-  const old = await drive(OLD, 'S', SERIES), now = await drive(NEW, 'S', SERIES);
+  const now = await drive('S', SERIES);
+  const old = record(FILE, 'series');
   SERIES.forEach((c, i) => held(old[i], now[i], c));
   // A chapter's title (1.3 misses it), its translation: its row alone.
   assert.deepEqual(now[0].seen.touched, ['row <S3>']);
@@ -186,7 +185,8 @@ test('the series: each kind of change drawn as 1.3 draws it, touching no more', 
 });
 
 test('the gallery: its title, a page added, the favourite; becoming a series and a gallery again', { skip: !chromePath() }, async () => {
-  const old = await drive(OLD, 'G', GALLERY), now = await drive(NEW, 'G', GALLERY);
+  const now = await drive('G', GALLERY);
+  const old = record(FILE, 'gallery');
   GALLERY.forEach((c, i) => held(old[i], now[i], c));
   assert.equal(now[1].read.grid.tiles.length, 4);
   assert.equal(now[3].read.rows.length, 2);

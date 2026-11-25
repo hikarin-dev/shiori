@@ -1,0 +1,5862 @@
+{
+  "into edit mode and out": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [
+      {
+        "title": [
+          "S series",
+          false
+        ],
+        "rows": [
+          [
+            "",
+            "S gallery",
+            false,
+            "",
+            "false"
+          ],
+          [
+            "The second",
+            "S2 gallery",
+            false,
+            "",
+            "false"
+          ],
+          [
+            "",
+            "S3 gallery",
+            false,
+            "",
+            "false"
+          ],
+          [
+            "Gone",
+            "Chapter 3",
+            false,
+            "missing",
+            null
+          ]
+        ],
+        "editing": true,
+        "expandShown": [
+          false,
+          false,
+          false
+        ],
+        "edit": {
+          "id": "editToggle",
+          "text": "Done",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "true",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        }
+      }
+    ],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "the series' title: typed, a press elsewhere": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "A new name",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "A new name",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "the series' title: typed, then Done": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "Done name",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "Done name",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "the series' title: emptied (its gallery's shows)": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "S gallery",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "the series' title: the same text again, nothing saved": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a gallery's own title: typed, Done": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G renamed",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "G renamed",
+      "subtitle": "Gギャラリー",
+      "rows": [],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 / 4 pages",
+        "translated",
+        "2023/11/15 06:13",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a chapter's title: typed, a press elsewhere": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>:An extra",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 An extra An extra",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a chapter's title: emptied (its gallery's shows)": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 S2 gallery S2 gallery",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a chapter's title: typed, then Done": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>:The first",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 The first The first",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "edit mode closes a row's pages": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [],
+    "looks": [
+      {
+        "title": [
+          "S series",
+          false
+        ],
+        "rows": [
+          [
+            "",
+            "S gallery",
+            false,
+            "",
+            "false"
+          ],
+          [
+            "The second",
+            "S2 gallery",
+            false,
+            "",
+            "false"
+          ],
+          [
+            "",
+            "S3 gallery",
+            false,
+            "",
+            "false"
+          ],
+          [
+            "Gone",
+            "Chapter 3",
+            false,
+            "missing",
+            null
+          ]
+        ],
+        "editing": true,
+        "expandShown": [
+          false,
+          false,
+          false
+        ],
+        "edit": {
+          "id": "editToggle",
+          "text": "Done",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "true",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        }
+      },
+      {
+        "title": [
+          "S series",
+          true
+        ],
+        "rows": [
+          [
+            "S gallery",
+            "S gallery",
+            true,
+            "",
+            "false"
+          ],
+          [
+            "The second",
+            "S2 gallery",
+            true,
+            "",
+            "false"
+          ],
+          [
+            "S3 gallery",
+            "S3 gallery",
+            true,
+            "",
+            "false"
+          ],
+          [
+            "Gone",
+            "Chapter 3",
+            true,
+            "missing",
+            null
+          ]
+        ],
+        "editing": false,
+        "expandShown": [
+          true,
+          true,
+          true
+        ],
+        "edit": {
+          "id": "editToggle",
+          "text": "Edit",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        }
+      }
+    ],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a tag pressed: the tag editor on it, Cancel": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Edit metadata tag",
+          "type": "Tag",
+          "typeOff": true,
+          "value": "alpha",
+          "pick": null,
+          "buttons": [
+            "Remove",
+            "Cancel",
+            "Save"
+          ],
+          "focus": "tagEdValue"
+        }
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a tag pressed: its value changed, Save": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alphabet",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Edit metadata tag",
+          "type": "Tag",
+          "typeOff": true,
+          "value": "alpha",
+          "pick": null,
+          "buttons": [
+            "Remove",
+            "Cancel",
+            "Save"
+          ],
+          "focus": "tagEdValue"
+        }
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alphabet1",
+                "count": "1",
+                "href": "/?q=tag%3A%22alphabet%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a tag pressed: Remove": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Edit metadata tag",
+          "type": "Tag",
+          "typeOff": true,
+          "value": "beta",
+          "pick": null,
+          "buttons": [
+            "Remove",
+            "Cancel",
+            "Save"
+          ],
+          "focus": "tagEdValue"
+        }
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "Shift on a tag: asked, OK": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove this tag?",
+        "body": "It’s removed from this gallery only.",
+        "detail": [
+          "Artist · someone",
+          "S series"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "Shift on a tag: asked, Cancel": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove this tag?",
+        "body": "It’s removed from this gallery only.",
+        "detail": [
+          "Tag · female · glasses",
+          "S series"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "the category pressed: the tag editor on it, Cancel": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Edit metadata tag",
+          "type": "Category",
+          "typeOff": true,
+          "value": null,
+          "pick": "manga",
+          "buttons": [
+            "Remove",
+            "Cancel",
+            "Save"
+          ],
+          "focus": "tagEdPick"
+        }
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "Shift on the rating: asked, OK": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "title": "Remove this tag?",
+        "body": "It’s removed from this gallery only.",
+        "detail": [
+          "Rating · safe",
+          "S series"
+        ],
+        "cover": "picture",
+        "tone": "danger",
+        "input": null,
+        "choices": [],
+        "checks": [],
+        "buttons": [
+          {
+            "text": "Cancel",
+            "danger": false
+          },
+          {
+            "text": "Remove",
+            "danger": true
+          }
+        ],
+        "focus": "Cancel"
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1  S gallery",
+        "2 The second The second",
+        "2.5  S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": true,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "\"+\": a tag added, the counts after": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe",
+          "tag:gamma"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Add metadata tag",
+          "type": "Tag",
+          "typeOff": false,
+          "value": "",
+          "pick": null,
+          "buttons": [
+            "Cancel",
+            "Add"
+          ],
+          "focus": "tagEdValue"
+        }
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "gamma1",
+                "count": "1",
+                "href": "/?q=tag%3A%22gamma%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "a gallery with no tags at all: \"+\" adds its first": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "No tags",
+        "tags": [
+          "tag:first"
+        ]
+      }
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "editor": {
+          "title": "Add metadata tag",
+          "type": "Tag",
+          "typeOff": false,
+          "value": "",
+          "pick": null,
+          "buttons": [
+            "Cancel",
+            "Add"
+          ],
+          "focus": "tagEdValue"
+        }
+      }
+    ],
+    "looks": [
+      {
+        "title": [
+          "No tags",
+          true
+        ],
+        "rows": [],
+        "editing": false,
+        "expandShown": [],
+        "edit": {
+          "id": "editToggle",
+          "text": "Edit",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        }
+      },
+      {
+        "title": [
+          "No tags",
+          false
+        ],
+        "rows": [],
+        "editing": true,
+        "expandShown": [],
+        "edit": {
+          "id": "editToggle",
+          "text": "Done",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "true",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        }
+      }
+    ],
+    "shown": {
+      "title": "No tags",
+      "subtitle": null,
+      "rows": [],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "first1",
+                "count": "1",
+                "href": "/?q=tag%3A%22first%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "1 / 1 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  },
+  "outside edit mode a tag is a link, and Shift does nothing to it": {
+    "said": [],
+    "opened": [],
+    "galleries": {
+      "G": {
+        "count": 3,
+        "translated": true,
+        "favorite": true,
+        "parent": null,
+        "title": "G gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "S gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle",
+          "parody:original",
+          "character:a hero",
+          "tag:female:glasses",
+          "tag:male:beard",
+          "tag:alpha",
+          "tag:beta",
+          "category:manga",
+          "rating:safe"
+        ]
+      },
+      "S2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S2 gallery",
+        "tags": [
+          "language:japanese",
+          "artist:someone",
+          "group:a circle"
+        ]
+      },
+      "S3": {
+        "count": 1,
+        "translated": true,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "S3 gallery",
+        "tags": []
+      },
+      "V1": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V1 gallery",
+        "tags": []
+      },
+      "V2": {
+        "count": 2,
+        "translated": false,
+        "favorite": false,
+        "parent": "<S>",
+        "title": "V2 gallery",
+        "tags": []
+      },
+      "X": null,
+      "W": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "W gallery",
+        "tags": []
+      },
+      "W2": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": "<W>",
+        "title": "W2 gallery",
+        "tags": []
+      },
+      "E": {
+        "count": 0,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "E gallery",
+        "tags": []
+      },
+      "F": {
+        "count": 1,
+        "translated": false,
+        "favorite": false,
+        "parent": null,
+        "title": "F gallery",
+        "tags": []
+      },
+      "N": null
+    },
+    "series": {
+      "S": {
+        "chapters": [
+          "<S>",
+          "<S2>:The second",
+          "<S3>",
+          "<V1>",
+          "<V2>:Volume two",
+          "<X>:Gone"
+        ],
+        "title": {
+          "english": "S series",
+          "japanese": "Sシリーズ",
+          "pretty": ""
+        }
+      },
+      "W": {
+        "chapters": [
+          "<W>",
+          "<W2>"
+        ],
+        "title": {
+          "english": "W volumes",
+          "japanese": "",
+          "pretty": ""
+        }
+      }
+    },
+    "dialogs": [
+      {
+        "href": "/?q=tag%3A%22alpha%22"
+      },
+      {
+        "shiftLook": "rgb(244, 244, 245)"
+      }
+    ],
+    "looks": [],
+    "shown": {
+      "title": "S series",
+      "subtitle": "Sシリーズ",
+      "rows": [
+        "1 S gallery S gallery",
+        "2 The second The second",
+        "2.5 S3 gallery S3 gallery",
+        "3 Gone Gone"
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      },
+      "meta": [
+        "manga",
+        "safe",
+        "3 chapters · 1 extras",
+        "8 pages",
+        "2026/09/22 01:16"
+      ]
+    },
+    "problems": []
+  }
+}

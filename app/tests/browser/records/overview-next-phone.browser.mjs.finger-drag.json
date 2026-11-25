@@ -1,0 +1,25 @@
+{
+  "scrolled": true,
+  "draggedByWords": false,
+  "mid": {
+    "dragging": true
+  },
+  "stillUnder": true,
+  "order": [
+    "<S>",
+    "<S3>",
+    "<S2>:The second",
+    "<V1>",
+    "<V2>:Volume two",
+    "<X>:Gone"
+  ],
+  "edgeScrolled": true,
+  "afterCancel": [
+    "<S>",
+    "<S3>",
+    "<S2>:The second",
+    "<V1>",
+    "<V2>:Volume two",
+    "<X>:Gone"
+  ]
+}

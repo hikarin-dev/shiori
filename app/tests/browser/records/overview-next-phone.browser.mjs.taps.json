@@ -1,0 +1,184 @@
+{
+  "heart": {
+    "tips": 0,
+    "fav": "true",
+    "editing": false,
+    "open": [],
+    "order": [
+      "<S>",
+      "<S2>",
+      "<S3>",
+      "<X>"
+    ]
+  },
+  "up": {
+    "tips": 0,
+    "fav": "true",
+    "editing": false,
+    "open": [],
+    "order": [
+      "<S>",
+      "<S3>",
+      "<S2>",
+      "<X>"
+    ]
+  },
+  "pages": {
+    "tips": 0,
+    "fav": "true",
+    "editing": false,
+    "open": [
+      "<S2>"
+    ],
+    "order": [
+      "<S>",
+      "<S3>",
+      "<S2>",
+      "<X>"
+    ]
+  },
+  "edit": {
+    "tips": 0,
+    "fav": "true",
+    "editing": true,
+    "open": [],
+    "order": [
+      "<S>",
+      "<S3>",
+      "<S2>",
+      "<X>"
+    ]
+  },
+  "done": {
+    "tips": 0,
+    "fav": "true",
+    "editing": false,
+    "open": [],
+    "order": [
+      "<S>",
+      "<S3>",
+      "<S2>",
+      "<X>"
+    ]
+  },
+  "faces": [
+    [
+      "<S>",
+      "Move up",
+      null
+    ],
+    [
+      "<S>",
+      "Move down",
+      null
+    ],
+    [
+      "<S>",
+      "Download all 2 pages",
+      "Replace images from CBZ"
+    ],
+    [
+      "<S>",
+      "Translate gallery",
+      null
+    ],
+    [
+      "<S>",
+      "Detach (keep gallery)",
+      null
+    ],
+    [
+      "<S>",
+      "Delete gallery",
+      "Quick delete"
+    ],
+    [
+      "<S3>",
+      "Move up",
+      null
+    ],
+    [
+      "<S3>",
+      "Move down",
+      null
+    ],
+    [
+      "<S3>",
+      "Download all 1 pages",
+      "Replace images from CBZ"
+    ],
+    [
+      "<S3>",
+      "Translate any new pages · Right-click: re-run from a stage",
+      "Revert to original"
+    ],
+    [
+      "<S3>",
+      "Detach (keep gallery)",
+      null
+    ],
+    [
+      "<S3>",
+      "Delete gallery",
+      "Quick delete"
+    ],
+    [
+      "<S2>",
+      "Move up",
+      null
+    ],
+    [
+      "<S2>",
+      "Move down",
+      null
+    ],
+    [
+      "<S2>",
+      "Download all 2 pages",
+      "Replace images from CBZ"
+    ],
+    [
+      "<S2>",
+      "Translate gallery",
+      null
+    ],
+    [
+      "<S2>",
+      "Detach (keep gallery)",
+      null
+    ],
+    [
+      "<S2>",
+      "Delete gallery",
+      "Quick delete"
+    ]
+  ],
+  "library": {
+    "S": {
+      "chapters": [
+        "<S>",
+        "<S3>",
+        "<S2>:The second",
+        "<V1>",
+        "<V2>:Volume two",
+        "<X>:Gone"
+      ],
+      "title": {
+        "english": "S series",
+        "japanese": "Sシリーズ",
+        "pretty": ""
+      }
+    },
+    "W": {
+      "chapters": [
+        "<W>",
+        "<W2>"
+      ],
+      "title": {
+        "english": "W volumes",
+        "japanese": "",
+        "pretty": ""
+      }
+    }
+  }
+}

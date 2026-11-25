@@ -1,0 +1,216 @@
+{
+  "false": {
+    "row": {
+      "id": "<S2>",
+      "state": [
+        "working"
+      ],
+      "num": "2",
+      "title": "The second",
+      "placeholder": "S2 gallery",
+      "readOnly": true,
+      "titleHref": "/reader?g=<S2>",
+      "titleLabel": "The second",
+      "thumbHref": "/reader?g=<S2>",
+      "thumbImg": true,
+      "meta": [
+        {
+          "text": "#722",
+          "href": "https://a.example/g/722",
+          "cls": "ch-id",
+          "target": "_blank"
+        },
+        {
+          "text": "2 / 2 pages",
+          "href": null,
+          "cls": null,
+          "target": null
+        }
+      ],
+      "progress": {
+        "label": "~2 / 8 · 976.6KB",
+        "fill": "21%",
+        "done": false
+      },
+      "grip": "Drag to reorder",
+      "actions": [
+        {
+          "kind": "up",
+          "tip": "Move up",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "m18 15-6-6-6 6"
+        },
+        {
+          "kind": "down",
+          "tip": "Move down",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "m6 9 6 6 6-6"
+        },
+        {
+          "kind": "download",
+          "tip": "Stop downloading",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [
+            "cancelling"
+          ],
+          "face": "rect"
+        },
+        {
+          "kind": "translate",
+          "tip": "Translate gallery",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": false,
+          "state": [],
+          "face": "m5 8 6 6"
+        },
+        {
+          "kind": "detach",
+          "tip": "Detach (keep gallery)",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "M9 7H7a5 5 0 0 0 0 10h2"
+        },
+        {
+          "kind": "remove",
+          "tip": "Delete gallery",
+          "shift": "Quick delete",
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "M3 6h18"
+        }
+      ],
+      "expand": {
+        "expanded": "false",
+        "tip": "Show pages",
+        "shift": null,
+        "badge": null
+      },
+      "pages": []
+    },
+    "left": null
+  },
+  "true": {
+    "row": {
+      "id": "<S2>",
+      "state": [
+        "working"
+      ],
+      "num": "2",
+      "title": "The second",
+      "placeholder": "S2 gallery",
+      "readOnly": true,
+      "titleHref": "/reader?g=<S2>",
+      "titleLabel": "The second",
+      "thumbHref": "/reader?g=<S2>",
+      "thumbImg": true,
+      "meta": [
+        {
+          "text": "#722",
+          "href": "https://a.example/g/722",
+          "cls": "ch-id",
+          "target": "_blank"
+        },
+        {
+          "text": "2 / 2 pages",
+          "href": null,
+          "cls": null,
+          "target": null
+        }
+      ],
+      "progress": {
+        "label": "Interrupted — run again to resume",
+        "fill": "0%",
+        "done": false
+      },
+      "grip": "Drag to reorder",
+      "actions": [
+        {
+          "kind": "up",
+          "tip": "Move up",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "m18 15-6-6-6 6"
+        },
+        {
+          "kind": "down",
+          "tip": "Move down",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "m6 9 6 6 6-6"
+        },
+        {
+          "kind": "download",
+          "tip": "Download all 2 pages",
+          "shift": "Replace images from CBZ",
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "M12 15V3"
+        },
+        {
+          "kind": "translate",
+          "tip": "Translate gallery",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": false,
+          "state": [],
+          "face": "m5 8 6 6"
+        },
+        {
+          "kind": "detach",
+          "tip": "Detach (keep gallery)",
+          "shift": null,
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "M9 7H7a5 5 0 0 0 0 10h2"
+        },
+        {
+          "kind": "remove",
+          "tip": "Delete gallery",
+          "shift": "Quick delete",
+          "badge": null,
+          "disabled": false,
+          "shown": true,
+          "state": [],
+          "face": "M3 6h18"
+        }
+      ],
+      "expand": {
+        "expanded": "false",
+        "tip": "Show pages",
+        "shift": null,
+        "badge": null
+      },
+      "pages": []
+    },
+    "left": 0
+  }
+}

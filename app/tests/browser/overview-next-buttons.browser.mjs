@@ -1,5 +1,5 @@
-// overview-next-buttons.browser.mjs — what the overview's buttons do at /overview-next, held to 1.3's page
-// (/overview) driven alike, 1.3's page the oracle, with stand-ins for the helper and the translation
+// overview-next-buttons.browser.mjs — what the overview's buttons do at /overview-next, held to what 1.3's
+// page (/overview) gave driven alike, with stand-ins for the helper and the translation
 // server: for each press in each case (plain, Shift, the right button; a series' chapter, its owner, a
 // volume, a translated one, one with no pages, one whose download is under way, a missing one, a linked
 // one; the helper there and not; the translation server's answer taken and not), what is said to
@@ -7,8 +7,12 @@
 // focus), each answer's outcome (OK, Cancel, Escape), what the row shows right after (a job begun) and
 // what the library holds after (each gallery; the series' order and its own titles). Any difference from
 // 1.3's fails, but those named here (§5.3's rows).
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { deflateSync, crc32 } from 'node:zlib';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,8 +20,10 @@ import { join } from 'node:path';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
 import { readDialog, answer, readMenu, pickStep } from './library-drive.mjs';
-import { openRun, nextBase, gid, visit, read, named, sleep, publish, record, outcome, pressRow, pressAt, rowSel, OLD, NEW } from './overview-drive.mjs';
+import { record as kept } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, named, sleep, publish, record, outcome, pressRow, pressAt, rowSel, NEW } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, tr, dir, picture;
 
 // A small PNG, for Replace.
@@ -186,8 +192,8 @@ async function run(path, [, opts, steps]) {
 for (const c of CASES) {
   test(c[0], async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const was = await run(OLD, c);
     const now = await run(NEW, c);
+    const was = kept(FILE, 'cases', c[0]);
     c[1].differs?.(was);
     assert.deepEqual(now, was);
   });

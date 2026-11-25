@@ -1,0 +1,842 @@
+{
+  "read": {
+    "title": "Shiori — Series",
+    "hero": {
+      "title": "S series",
+      "titleId": "seriesTitle",
+      "placeholder": "Series title",
+      "readOnly": true,
+      "titleHref": "/reader?g=<S>",
+      "titleLabel": "S series",
+      "subtitle": "Sシリーズ",
+      "coverHref": "/reader?g=<S>",
+      "cover": true,
+      "backdrop": true,
+      "actions": [
+        {
+          "id": "readStart",
+          "text": "Read from start",
+          "href": "/reader?g=<S>&page=1",
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": null,
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "favToggle",
+          "text": "Add to favorites",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "editToggle",
+          "text": "Edit",
+          "href": null,
+          "tip": null,
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": "false",
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "moveTo",
+          "text": "Move to…",
+          "href": null,
+          "tip": "Move to another library folder",
+          "shift": null,
+          "badge": null,
+          "shown": false,
+          "pressed": null,
+          "disabled": false,
+          "target": null,
+          "filled": false
+        },
+        {
+          "id": "ovSource",
+          "text": "Source",
+          "href": "https://a.example/g/720",
+          "tip": "Site One: https://a.example/g/720",
+          "shift": null,
+          "badge": null,
+          "shown": true,
+          "pressed": null,
+          "disabled": false,
+          "target": "_blank",
+          "filled": false
+        }
+      ],
+      "meta": [
+        [
+          {
+            "text": "manga",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Category",
+            "shift": null,
+            "badge": null,
+            "tag": "category:manga"
+          },
+          {
+            "text": "safe",
+            "icon": true,
+            "cls": "cap",
+            "tip": "Rating",
+            "shift": null,
+            "badge": null,
+            "tag": "rating:safe"
+          },
+          {
+            "text": "3 chapters · 1 extras",
+            "icon": true,
+            "cls": "",
+            "tip": null,
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "8 pages",
+            "icon": true,
+            "cls": "",
+            "tip": "4.2KB/page average",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "41.8KB",
+            "icon": true,
+            "cls": "",
+            "tip": "Original pages\t33.9KB\nOther data\t7.9KB",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          },
+          {
+            "text": "300×430",
+            "icon": true,
+            "cls": "",
+            "tip": "0.13 MP",
+            "shift": null,
+            "badge": "T1",
+            "tag": null
+          }
+        ],
+        [
+          {
+            "text": "2026/09/22 00:45",
+            "icon": true,
+            "cls": "",
+            "tip": "Added · 2 months ago",
+            "shift": null,
+            "badge": null,
+            "tag": null
+          }
+        ]
+      ],
+      "tags": {
+        "shown": true,
+        "rows": [
+          {
+            "label": "Language",
+            "chips": [
+              {
+                "text": "japanese2",
+                "count": "2",
+                "href": "/?q=language%3A%22japanese%22",
+                "shown": true,
+                "type": "language",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Artist",
+            "chips": [
+              {
+                "text": "someone2",
+                "count": "2",
+                "href": "/?q=artist%3A%22someone%22",
+                "shown": true,
+                "type": "artist",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Group",
+            "chips": [
+              {
+                "text": "a circle2",
+                "count": "2",
+                "href": "/?q=group%3A%22a%20circle%22",
+                "shown": true,
+                "type": "group",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Parody",
+            "chips": [
+              {
+                "text": "original2",
+                "count": "2",
+                "href": "/?q=parody%3A%22original%22",
+                "shown": true,
+                "type": "parody",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Character",
+            "chips": [
+              {
+                "text": "a hero2",
+                "count": "2",
+                "href": "/?q=character%3A%22a%20hero%22",
+                "shown": true,
+                "type": "character",
+                "tip": null
+              }
+            ]
+          },
+          {
+            "label": "Tag",
+            "chips": [
+              {
+                "text": "glasses ♀2",
+                "count": "2",
+                "href": "/?q=tag%3Afemale%3A%22glasses%22",
+                "shown": true,
+                "type": "tag:female",
+                "tip": null
+              },
+              {
+                "text": "beard ♂2",
+                "count": "2",
+                "href": "/?q=tag%3Amale%3A%22beard%22",
+                "shown": true,
+                "type": "tag:male",
+                "tip": null
+              },
+              {
+                "text": "alpha2",
+                "count": "2",
+                "href": "/?q=tag%3A%22alpha%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "beta2",
+                "count": "2",
+                "href": "/?q=tag%3A%22beta%22",
+                "shown": true,
+                "type": "tag",
+                "tip": null
+              },
+              {
+                "text": "+",
+                "count": null,
+                "href": null,
+                "shown": false,
+                "type": null,
+                "tip": "Add metadata tag"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "section": {
+      "views": [
+        {
+          "view": "chapters",
+          "text": "chapters",
+          "selected": "true"
+        },
+        {
+          "view": "volumes",
+          "text": "volumes",
+          "selected": "false"
+        }
+      ],
+      "text": null,
+      "count": "4"
+    },
+    "rows": [
+      {
+        "id": "<S>",
+        "state": [],
+        "num": "1",
+        "title": "S gallery",
+        "placeholder": "S gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S>",
+        "titleLabel": "S gallery",
+        "thumbHref": "/reader?g=<S>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#720",
+            "href": "https://a.example/g/720",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      {
+        "id": "<S2>",
+        "state": [],
+        "num": "2",
+        "title": "The second",
+        "placeholder": "S2 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S2>",
+        "titleLabel": "The second",
+        "thumbHref": "/reader?g=<S2>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#722",
+            "href": "https://a.example/g/722",
+            "cls": "ch-id",
+            "target": "_blank"
+          },
+          {
+            "text": "2 / 2 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 2 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate gallery",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": [
+          {
+            "href": "/reader?g=<S2>&page=1",
+            "num": "1"
+          },
+          {
+            "href": "/reader?g=<S2>&page=2",
+            "num": "2"
+          }
+        ]
+      },
+      {
+        "id": "<S3>",
+        "state": [],
+        "num": "2.5",
+        "title": "S3 gallery",
+        "placeholder": "S3 gallery",
+        "readOnly": true,
+        "titleHref": "/reader?g=<S3>",
+        "titleLabel": "S3 gallery",
+        "thumbHref": "/reader?g=<S3>",
+        "thumbImg": true,
+        "meta": [
+          {
+            "text": "#723",
+            "href": null,
+            "cls": null,
+            "target": null
+          },
+          {
+            "text": "1 / 1 pages",
+            "href": null,
+            "cls": null,
+            "target": null
+          },
+          {
+            "text": "translated",
+            "href": null,
+            "cls": "done",
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "download",
+            "tip": "Download all 1 pages",
+            "shift": "Replace images from CBZ",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M12 15V3"
+          },
+          {
+            "kind": "translate",
+            "tip": "Translate any new pages · Right-click: re-run from a stage",
+            "shift": "Revert to original",
+            "badge": null,
+            "disabled": false,
+            "shown": false,
+            "state": [
+              "done"
+            ],
+            "face": "m5 8 6 6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": {
+          "expanded": "false",
+          "tip": "Show pages",
+          "shift": null,
+          "badge": null
+        },
+        "pages": []
+      },
+      {
+        "id": "<X>",
+        "state": [
+          "missing"
+        ],
+        "num": "3",
+        "title": "Gone",
+        "placeholder": "Chapter 3",
+        "readOnly": true,
+        "titleHref": "/reader?g=<X>",
+        "titleLabel": "Gone",
+        "thumbHref": null,
+        "thumbImg": false,
+        "meta": [
+          {
+            "text": "#<X>",
+            "href": null,
+            "cls": null,
+            "target": null
+          },
+          {
+            "text": "missing",
+            "href": null,
+            "cls": null,
+            "target": null
+          }
+        ],
+        "progress": null,
+        "grip": "Drag to reorder",
+        "actions": [
+          {
+            "kind": "up",
+            "tip": "Move up",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "m18 15-6-6-6 6"
+          },
+          {
+            "kind": "down",
+            "tip": "Move down",
+            "shift": null,
+            "badge": null,
+            "disabled": true,
+            "shown": true,
+            "state": [],
+            "face": "m6 9 6 6 6-6"
+          },
+          {
+            "kind": "detach",
+            "tip": "Detach (keep gallery)",
+            "shift": null,
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M9 7H7a5 5 0 0 0 0 10h2"
+          },
+          {
+            "kind": "remove",
+            "tip": "Delete gallery",
+            "shift": "Quick delete",
+            "badge": null,
+            "disabled": false,
+            "shown": true,
+            "state": [],
+            "face": "M3 6h18"
+          }
+        ],
+        "expand": null,
+        "pages": []
+      }
+    ],
+    "grid": null,
+    "add": {
+      "heading": "Add chapter",
+      "placeholder": "Search by title or gallery ID…",
+      "hint": "Tip: drop a .cbz, .zip or PDF file here — or several images, or a folder — to add it as the next chapter."
+    }
+  },
+  "boxes": {
+    "hero": [170, 78, 940, 354.13],
+    "cover": [170, 78, 220, 311.13],
+    "info": [416, 78, 694, 354.13],
+    "title": [407, 78, 703, 34],
+    "subtitle": [416, 120, 694, 18.13],
+    "actions": [
+      [416, 152.13, 159, 34],
+      [583, 152.13, 166.2, 34],
+      [757.2, 152.13, 79.81, 34],
+      [0, 0, 0, 0],
+      [845.02, 152.13, 94.2, 34]
+    ],
+    "actionIcons": [
+      [431, 162.13, 14, 14],
+      [598, 162.13, 14, 14],
+      [772.2, 162.13, 14, 14],
+      [0, 0, 0, 0],
+      [860.02, 162.13, 14, 14]
+    ],
+    "meta": [416, 200.13, 694, 39],
+    "metaItems": [
+      [416, 200.13, 56, 16],
+      [490, 200.13, 48.81, 16],
+      [556.81, 200.13, 171.2, 16],
+      [746.02, 200.13, 70.41, 16],
+      [834.42, 200.13, 63.2, 16],
+      [915.63, 200.13, 70.41, 16],
+      [416, 223.13, 135.2, 16]
+    ],
+    "metaIcons": [
+      [416, 201.13, 14, 14],
+      [490, 201.13, 14, 14],
+      [556.81, 201.13, 14, 14],
+      [746.02, 201.13, 14, 14],
+      [834.42, 201.13, 14, 14],
+      [915.63, 201.13, 14, 14],
+      [416, 224.13, 14, 14]
+    ],
+    "tags": [416, 253.13, 694, 179],
+    "tagLabels": [
+      [416, 253.13, 64.81, 24],
+      [416, 284.13, 64.81, 24],
+      [416, 315.13, 64.81, 24],
+      [416, 346.13, 64.81, 24],
+      [416, 377.13, 64.81, 24],
+      [416, 408.13, 64.81, 24]
+    ],
+    "chips": [
+      [496.81, 253.13, 99.81, 24],
+      [496.81, 284.13, 92.61, 24],
+      [496.81, 315.13, 99.81, 24],
+      [496.81, 346.13, 99.81, 24],
+      [496.81, 377.13, 85.41, 24],
+      [496.81, 408.13, 106.41, 24],
+      [608.22, 408.13, 92.02, 24],
+      [705.23, 408.13, 78.2, 24],
+      [788.44, 408.13, 71.02, 24],
+      [0, 0, 0, 0]
+    ],
+    "section": [170, 462.13, 940, 18],
+    "views": [
+      [170, 462.13, 67.38, 18],
+      [249.38, 462.13, 59.45, 18]
+    ],
+    "count": [326.83, 462.13, 6.61, 14],
+    "rows": [
+      [170, 492.13, 940, 64.91],
+      [170, 563.03, 940, 64.91],
+      [170, 633.94, 940, 64.91],
+      [170, 704.84, 940, 64.91]
+    ],
+    "nums": [
+      [171, 516.58, 57.59, 16],
+      [171, 587.48, 57.59, 16],
+      [171, 658.39, 57.59, 16],
+      [171, 729.3, 57.59, 16]
+    ],
+    "thumbs": [
+      [228.59, 499.13, 36, 50.91],
+      [228.59, 570.03, 36, 50.91],
+      [228.59, 640.94, 36, 50.91],
+      [228.59, 711.84, 36, 50.91]
+    ],
+    "titles": [
+      [274.59, 504.95, 82.2, 24.25],
+      [274.59, 575.86, 90, 24.25],
+      [274.59, 646.77, 90, 24.25],
+      [274.59, 717.67, 45, 24.25]
+    ],
+    "metas": [
+      [274.59, 529.2, 607.41, 15],
+      [274.59, 600.11, 607.41, 15],
+      [274.59, 671.02, 607.41, 15],
+      [274.59, 741.92, 683.41, 15]
+    ],
+    "metaParts": [
+      [279.59, 530.2, 25.2, 14],
+      [314.8, 530.2, 69.31, 14],
+      [279.59, 601.11, 25.2, 14],
+      [314.8, 601.11, 69.31, 14],
+      [279.59, 672.02, 25.2, 14],
+      [314.8, 672.02, 69.31, 14],
+      [394.11, 672.02, 63, 14],
+      [279.59, 742.92, 88.2, 14],
+      [377.8, 742.92, 44.11, 14]
+    ],
+    "rowActions": [
+      [892, 509.58, 166, 30],
+      [892, 580.48, 166, 30],
+      [892, 651.39, 166, 30],
+      [968, 722.3, 132, 30]
+    ],
+    "rowButtons": [
+      [892, 509.58, 30, 30],
+      [926, 509.58, 30, 30],
+      [960, 509.58, 30, 30],
+      [0, 0, 0, 0],
+      [994, 509.58, 30, 30],
+      [1028, 509.58, 30, 30],
+      [892, 580.48, 30, 30],
+      [926, 580.48, 30, 30],
+      [960, 580.48, 30, 30],
+      [0, 0, 0, 0],
+      [994, 580.48, 30, 30],
+      [1028, 580.48, 30, 30],
+      [892, 651.39, 30, 30],
+      [926, 651.39, 30, 30],
+      [960, 651.39, 30, 30],
+      [0, 0, 0, 0],
+      [994, 651.39, 30, 30],
+      [1028, 651.39, 30, 30],
+      [968, 722.3, 30, 30],
+      [1002, 722.3, 30, 30],
+      [1036, 722.3, 30, 30],
+      [1070, 722.3, 30, 30]
+    ],
+    "expands": [
+      [1070, 509.58, 30, 30],
+      [1070, 580.48, 30, 30],
+      [1070, 651.39, 30, 30]
+    ],
+    "grips": [
+      [173, 509.58, 14, 30],
+      [173, 580.48, 14, 30],
+      [173, 651.39, 14, 30],
+      [173, 722.3, 14, 30]
+    ],
+    "progress": [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0],
+      [0, 0, 0, 0]
+    ],
+    "pages": [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0]
+    ],
+    "pageNums": [
+      [0, 0, 0, 0],
+      [0, 0, 0, 0]
+    ],
+    "add": [170, 791.75, 940, 124],
+    "addHeading": [187, 808.75, 906, 16],
+    "addSearch": [187, 834.75, 906, 40],
+    "addHint": [187, 884.75, 906, 14],
+    "page": [1280, 996]
+  }
+}

@@ -1,5 +1,5 @@
 // overview-next-layout.browser.mjs — the layout checklist (the layout-principles skill) on the overview
-// at /overview-next, held against 1.3's page (/overview) where 1.3 sets the bar: a window resized across
+// at /overview-next, held to what 1.3's page (/overview) gave where 1.3 sets the bar: a window resized across
 // every column count of the page grid and across the page's own widths settles in the next frame with
 // nothing easing; at 125% and 150% scale, with the page's scrollbar shown, every part's box is 1.3's
 // within a pixel; the scrollbar coming (a series of 2 chapters against one of 60) moves the column as
@@ -10,16 +10,22 @@
 // 1280 and 760 wide; the title growing with its lines in the frame they are typed, as 1.3's; the
 // delete's question and the re-run menu inside the window at 1280, 760, a phone and 125%/150%, the
 // question never moving from its first frame with the CPU slowed six times.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 import { startServer, chromePath, openPage, until } from './harness.mjs';
-import { seedRun, nextBase, gid, visit, boxes, boxDiff, sleep, OLD, NEW } from './overview-drive.mjs';
+import { record } from './records.mjs';
+import { seedRun, nextBase, gid, visit, boxes, boxDiff, sleep, NEW, PARTS } from './overview-drive.mjs';
 import { standInHelper } from './stand-in-helper.mjs';
 import { easedTransforms } from './layers.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
 
-let server, origin, browser, base, long, sixty, titled;
+const FILE = basename(fileURLToPath(import.meta.url));
+let server, origin, browser, base, long, sixty, titled, seeded, dragBase;
 
 before(async () => {
   if (!chromePath()) return;
@@ -32,6 +38,9 @@ before(async () => {
   const page = await openPage(browser, origin);
   await standInHelper(page);
   await seedRun(page, origin, base);
+  // A run of its own for the drag, which moves its rows (the tests that read a record read `base`'s).
+  dragBase = nextBase(1790009900000);
+  await seedRun(page, origin, dragBase);
   await page.evaluate(async ({ long, sixty, titled }) => {
     const api = await import('/app/js/api.js');
     const png = async (hue, w = 300, h = 430) => { const c = new OffscreenCanvas(w, h); const x = c.getContext('2d'); x.fillStyle = `hsl(${hue} 60% 50%)`; x.fillRect(0, 0, w, h); return c.convertToBlob({ type: 'image/png' }); };
@@ -45,8 +54,25 @@ before(async () => {
       tags: [{ type: 'tag', name: 'a tag whose name is long enough to wrap inside its own chip on a narrow page' }], numPages: 1 });
     await api.pages.put(titled, 1, await png(30, 800, 400));
   }, { long, sixty, titled });
+  // Each gallery's typical page measured, and the series' (the library measures them on a timer of the
+  // page that stored them, which this seeding page leaves at once: a page shown a moment later read
+  // either side of it).
+  await page.evaluate(async ({ long, sixty, titled }) => {
+    const db = await import('/app/js/db.js');
+    for (const id of [long, titled, sixty, ...Array.from({ length: 59 }, (_, i) => String(Number(sixty) + 1001 + i))]) await db.refreshMedianPage(id);
+    await db.refreshSeriesAggregate(sixty);
+  }, { long, sixty, titled });
+  seeded = await page.evaluate(async (ids) => { const api = await import('/app/js/api.js'); const out = []; for (const id of ids) out.push(await api.meta.get(id)); return out; }, [...Object.keys(PARTS).map((part) => gid(base, part)), titled, sixty]);
   await page.close();
 });
+// The galleries the tests change (an order dragged, a title typed and saved as its page closed) put
+// back as seeded, so a test reads the library as made whichever tests ran before it.
+async function asSeeded() {
+  const page = await openPage(browser, origin);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await page.evaluate(async (metas) => { const api = await import('/app/js/api.js'); for (const m of metas) if (m) await api.meta.put(m); }, seeded);
+  await page.close();
+}
 after(async () => { await browser?.close(); server?.close(); });
 
 async function open(path, g, view = { width: 1280, height: 900 }) {
@@ -80,30 +106,29 @@ test('a resize across every column count of the grid and the page\'s widths: set
 
 for (const scale of [1.25, 1.5]) {
   test(`at ${scale * 100}% scale with the page's scrollbar: every box 1.3's within a pixel`, { skip: !chromePath() }, async () => {
+    await asSeeded();
     for (const [part, g] of [['a series', gid(base, 'S')], ['a gallery', gid(base, 'G')], ['a long title', titled]]) {
-      const got = {};
-      for (const path of [OLD, NEW]) {
-        const page = await open(path, g, { width: 1280, height: 900, deviceScaleFactor: scale });
-        got[path] = await page.evaluate(boxes);
-        await page.close();
-      }
-      assert.deepEqual(boxDiff(got[OLD], got[NEW], 1).filter((d) => !/^\.count: /.test(d)), [], part);
+      const page = await open(NEW, g, { width: 1280, height: 900, deviceScaleFactor: scale });
+      const now = await page.evaluate(boxes);
+      await page.close();
+      const was = record(FILE, 'scales', `${scale} ${part}`);
+      assert.deepEqual(boxDiff(was, now, 1).filter((d) => !/^\.count: /.test(d)), [], part);
     }
   });
 }
 
 test('the scrollbar coming (2 chapters, then 60) moves the column as 1.3\'s does, at 100% and 125%', { skip: !chromePath() }, async () => {
+  await asSeeded();
   for (const scale of [1, 1.25]) {
-    const x = {};
-    for (const path of [OLD, NEW]) {
-      for (const [n, g] of [[2, gid(base, 'W')], [60, sixty]]) {
-        const page = await open(path, g, { width: 1280, height: 900, deviceScaleFactor: scale });
-        x[`${path} ${n}`] = await page.evaluate(() => ({ bar: innerWidth - document.documentElement.clientWidth, wrap: document.querySelector('.ov-wrap').getBoundingClientRect().x, header: document.querySelector('#settingsBtn').getBoundingClientRect().x }));
-        await page.close();
-      }
+    const now = {};
+    for (const [n, g] of [[2, gid(base, 'W')], [60, sixty]]) {
+      const page = await open(NEW, g, { width: 1280, height: 900, deviceScaleFactor: scale });
+      now[n] = await page.evaluate(() => ({ bar: innerWidth - document.documentElement.clientWidth, wrap: document.querySelector('.ov-wrap').getBoundingClientRect().x, header: document.querySelector('#settingsBtn').getBoundingClientRect().x }));
+      await page.close();
     }
-    for (const n of [2, 60]) assert.deepEqual(x[`${NEW} ${n}`], x[`${OLD} ${n}`], `${scale}: ${n} chapters`);
-    assert.ok(x[`${NEW} 60`].bar > 0 && x[`${NEW} 2`].bar === 0, JSON.stringify(x));
+    const was = record(FILE, 'scrollbar', `${scale}`);
+    for (const n of [2, 60]) assert.deepEqual(now[n], was[n], `${scale}: ${n} chapters`);
+    assert.ok(now[60].bar > 0 && now[2].bar === 0, JSON.stringify(now));
   }
 });
 
@@ -138,30 +163,30 @@ async function landing(path, g, sel) {
 }
 
 test('with the CPU slowed six times, nothing moves while the pictures land but what moves on 1.3\'s page (the column, as the scrollbar comes)', { skip: !chromePath() }, async () => {
+  await asSeeded();
   for (const [what, g, sel] of [['the grid', long, '#ovPages .ov-page'], ['the rows', sixty, '.ch-row']]) {
-    const old = await landing(OLD, g, sel), now = await landing(NEW, g, sel);
+    const now = await landing(NEW, g, sel);
+    const old = record(FILE, 'landing', what);
     for (const shift of now) assert.ok(old.includes(shift), `${what}: a move of ${shift} (1.3's: ${old.join(' | ')})`);
   }
 });
 
 test('on a phone\'s screen: nothing scrolls sideways, a row\'s buttons show with no pointer to hover, the same boxes as 1.3\'s', { skip: !chromePath() }, async () => {
+  await asSeeded();
   const view = { width: 390, height: 844, hasTouch: true, isMobile: true };
-  for (const g of [gid(base, 'S'), gid(base, 'G'), titled]) {
-    const got = {};
-    for (const path of [OLD, NEW]) {
-      const page = await open(path, g, view);
-      got[path] = await page.evaluate(() => ({
-        sideways: document.documentElement.scrollWidth - innerWidth,
-        actions: [...document.querySelectorAll('.ch-actions')].map((el) => getComputedStyle(el).opacity),
-      }));
-      got[`${path} boxes`] = await page.evaluate(boxes);
-      await page.close();
-    }
-    assert.deepEqual(got[NEW], got[OLD]);
-    assert.equal(got[NEW].sideways, 0);
-    assert.ok(got[NEW].actions.every((o) => o === '1'));
+  for (const [part, g] of [['a series', gid(base, 'S')], ['a gallery', gid(base, 'G')], ['a long title', titled]]) {
+    const page = await open(NEW, g, view);
+    const now = { shown: await page.evaluate(() => ({
+      sideways: document.documentElement.scrollWidth - innerWidth,
+      actions: [...document.querySelectorAll('.ch-actions')].map((el) => getComputedStyle(el).opacity),
+    })), boxes: await page.evaluate(boxes) };
+    await page.close();
+    const was = record(FILE, 'phone', part);
+    assert.deepEqual(now.shown, was.shown);
+    assert.equal(now.shown.sideways, 0);
+    assert.ok(now.shown.actions.every((o) => o === '1'));
     // (The header is every page's one header, 12px in at the sides at 600px or less: not 1.3's 20.)
-    assert.deepEqual(boxDiff(got[`${OLD} boxes`], got[`${NEW} boxes`], 1).filter((d) => !/^\.count: /.test(d)), []);
+    assert.deepEqual(boxDiff(was.boxes, now.boxes, 1).filter((d) => !/^\.count: /.test(d)), []);
   }
 });
 
@@ -176,26 +201,27 @@ const editing = async (page) => {
 
 for (const scale of [1, 1.25, 1.5]) {
   test(`edit mode at ${scale * 100}% scale, 1280 and 760 wide: every box 1.3's within a pixel`, { skip: !chromePath() }, async () => {
+    await asSeeded();
     for (const width of [1280, 760]) {
       for (const [part, g] of [['a series', gid(base, 'S')], ['a long title and a long tag', titled]]) {
-        const got = {};
-        for (const path of [OLD, NEW]) {
-          const page = await open(path, g, { width, height: 900, deviceScaleFactor: scale });
-          await editing(page);
-          got[path] = await page.evaluate(boxes);
-          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, `${path} ${width}: no sideways scroll`);
-          await page.close();
-        }
-        assert.deepEqual(boxDiff(got[OLD], got[NEW], 1).filter((d) => !/^\.count: /.test(d)), [], `${part}, ${width}`);
+        const page = await open(NEW, g, { width, height: 900, deviceScaleFactor: scale });
+        await editing(page);
+        const now = { boxes: await page.evaluate(boxes), sideways: await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth) };
+        await page.close();
+        const was = record(FILE, 'edit', `${scale} ${width} ${part}`);
+        assert.equal(now.sideways, 0, `${width}: no sideways scroll`);
+        assert.equal(was.sideways, 0, `1.3's at ${width}: no sideways scroll`);
+        assert.deepEqual(boxDiff(was.boxes, now.boxes, 1).filter((d) => !/^\.count: /.test(d)), [], `${part}, ${width}`);
       }
     }
   });
 }
 
 test('edit mode: the title grows with its lines as they are typed, in the frame they come, as 1.3\'s; on a phone nothing scrolls sideways', { skip: !chromePath() }, async () => {
+  await asSeeded();
   const more = ' and the words go on and on, over the end of the line, to a line of their own and then one more after it';
-  const got = {};
-  for (const path of [OLD, NEW]) {
+  const now = {};
+  for (const path of [NEW]) {
     for (const view of [{ width: 1280, height: 900 }, { width: 390, height: 844, isMobile: true, hasTouch: true }]) {
       const page = await open(path, titled, view);
       // (The title as it was made: a page closed with its box focused may have saved what was typed.)
@@ -214,12 +240,15 @@ test('edit mode: the title grows with its lines as they are typed, in the frame 
       })));
       assert.ok(next.height > before, `${path} ${view.width}: grown (${before} → ${next.height})`);
       assert.deepEqual([next.fits, next.moving, next.sideways], [true, 0, 0], `${path} ${view.width}`);
-      got[`${path} ${view.width}`] = [before, next.height];
+      now[view.width] = [before, next.height];
       await page.close();
     }
   }
+  // (1.3's title grew too, as tall as its lines, nothing easing, no sideways scroll.)
+  const was = record(FILE, 'title-grows');
   for (const width of [1280, 390]) {
-    const [a, b] = [got[`${OLD} ${width}`], got[`${NEW} ${width}`]];
+    const [a, b] = [was[width], now[width]];
+    assert.ok(a[1] > a[0], `1.3's ${width}: grown (${a})`);
     assert.ok(Math.abs(a[0] - b[0]) <= 4 && Math.abs(a[1] - b[1]) <= 4, `${width}: 1.3's heights (${a}) and the new (${b}), within 1.3's 4px of an inline box`);
   }
 });
@@ -281,12 +310,12 @@ test('the delete\'s question and the re-run menu stay inside the window (1280, 7
 // of where the pointer holds it, nothing of the page moving sideways or growing, the drop in its place.
 test('the drag: at 100%, 125% and 150%, with the page’s scrollbar and without, in a narrow window, the row on the pointer and nothing else moving', { skip: !chromePath() }, async () => {
   for (const [what, g, view, scale] of [
-    ['a series of four, no scrollbar', gid(base, 'S'), { width: 1280, height: 1400 }, 1],
+    ['a series of four, no scrollbar', gid(dragBase, 'S'), { width: 1280, height: 1400 }, 1],
     ['the sixty, its scrollbar', sixty, { width: 1280, height: 900 }, 1],
     ['the sixty at 125%', sixty, { width: 1280, height: 900 }, 1.25],
     ['the sixty at 150%', sixty, { width: 1280, height: 900 }, 1.5],
-    ['a series of four at 760', gid(base, 'S'), { width: 760, height: 900 }, 1],
-    ['a series of four at 400', gid(base, 'S'), { width: 400, height: 800 }, 1],
+    ['a series of four at 760', gid(dragBase, 'S'), { width: 760, height: 900 }, 1],
+    ['a series of four at 400', gid(dragBase, 'S'), { width: 400, height: 800 }, 1],
   ]) {
     const page = await open(NEW, g, { ...view, deviceScaleFactor: scale });
     await page.$eval('.ch-row:nth-child(2)', (el) => el.scrollIntoView({ block: 'center' }));
@@ -393,6 +422,7 @@ test('the add list: inside the window at its edges, nothing of the page moving a
 // nothing eases a transform but a row button's faces (rule 29). (The desktop's Archive now and Move are
 // not here: a browser's library has neither; they sit in the same wrapping row of buttons.)
 test('the whole page, each variant: the scrollbar, a resize, narrow and short windows, 125% and 150%, as 1.3\'s', { skip: !chromePath() }, async () => {
+  await asSeeded();
   const row = (n) => `.ch-row:nth-child(${n})`;
   const publish = (p, job) => p.evaluate(async (job) => (await import('/app/js/platform.js')).jobs.publish(job), job);
   // (The jobs cleared and the view's choice forgotten after each variant.)
@@ -431,7 +461,7 @@ test('the whole page, each variant: the scrollbar, a resize, narrow and short wi
   })));
   for (const [name, g, then] of VARIANTS) {
     const got = {};
-    for (const path of [OLD, NEW]) {
+    for (const path of [NEW]) {
       const page = await open(path, g);
       if (then) await then(page);
       await page.mouse.move(1270, 5);
@@ -450,8 +480,10 @@ test('the whole page, each variant: the scrollbar, a resize, narrow and short wi
       await clear(page);
       await page.close();
     }
+    const now = got[NEW].map(({ step, sideways, boxes }) => ({ step, sideways, boxes }));
+    const kept = record(FILE, 'variants', name);
     for (const [i, [step]] of STEPS.entries()) {
-      const [was, now] = [got[OLD][i], got[NEW][i]];
+      const [was, now] = [kept[i], got[NEW][i]];
       assert.deepEqual(now.moving, [], `${name}, ${step}: nothing eases in the frame after`);
       assert.deepEqual(now.still, [], `${name}, ${step}: every box final in the next frame`);
       assert.equal(now.sideways, was.sideways, `${name}, ${step}: sideways scroll as 1.3's`);

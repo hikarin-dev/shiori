@@ -1,5 +1,5 @@
-// overview-next-drag.browser.mjs — a chapter row dragged by its grip at /overview-next, held to 1.3's page
-// (/overview) driven alike, 1.3's page the oracle: nothing until the pointer has moved 3px; a row down a
+// overview-next-drag.browser.mjs — a chapter row dragged by its grip at /overview-next, held to what 1.3's
+// page (/overview) gave driven alike: nothing until the pointer has moved 3px; a row down a
 // place, up to the first (ownership moving with it), over several rows to the end, released in its own
 // place, Escape and a pointer lost (every row back, nothing saved), a volume among the volumes, with a
 // row's pages open, with a job running on a row, in edit mode, a finger on the grip, a long list scrolled
@@ -8,11 +8,19 @@
 // lifted, whether the list sorts, the order they show in from the top, the DOM's order, the rows'
 // buttons gone, the grip's tip put away), what they show once settled (nothing of the drag left), the
 // order the page shows, and what the library holds after. Any difference from 1.3's fails.
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
+// Every frame of a drag is kept as what the frames showed (the row on the pointer within the test's
+// pixel, the others easing, the drop's frame), not as places frame by frame.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
-import { openRun, nextBase, gid, visit, read, named, named as named0, sleep, publish, record, outcome, rowSel, OLD, NEW, PARTS } from './overview-drive.mjs';
+import { record as kept } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, named, named as named0, sleep, publish, record, outcome, rowSel, NEW, PARTS } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser;
 before(async () => {
   if (!chromePath()) return;
@@ -289,9 +297,8 @@ async function run(path, [, opts, steps]) {
 for (const c of CASES) {
   test(c[0], async (t) => {
     if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-    const was = await run(OLD, c);
     const now = await run(NEW, c);
-    if (process.env.DUMP) console.log(JSON.stringify({ seen: was.seen, rest: was.rest, rows: was.shown.rows, said: was.said }));
+    const was = kept(FILE, 'cases', c[0]);
     assert.deepEqual(now, was);
   });
 }
@@ -325,8 +332,9 @@ function recordFrames() {
 
 test('every frame of a drag: the row on the pointer, the others easing to make room, the drop drawn in its frame, the same nodes', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const out = {};
-  for (const path of [OLD, NEW]) {
+  let now;
+  {
+    const path = NEW;
     const base = nextBase(1790017000000);
     const context = await browser.createBrowserContext();
     const page = await openRun(context, origin, base);
@@ -348,7 +356,7 @@ test('every frame of a drag: the row on the pointer, the others easing to make r
     const during = frames.filter((f) => !f.up && f.lifted);
     const offset = during[0].top - during[0].p;
     const drop = frames.findIndex((f) => f.up);
-    out[path] = {
+    now = {
       // How far the row strays from where the pointer holds it, at most (px).
       trail: Math.max(...during.map((f) => Math.abs(f.top - f.p - offset))) <= 1,
       othersEased: during.some((f) => f.moving.some((id) => id !== during[0].lifted)),
@@ -361,6 +369,7 @@ test('every frame of a drag: the row on the pointer, the others easing to make r
     };
     await context.close();
   }
-  assert.deepEqual(out[NEW], out[OLD]);
-  assert.deepEqual(out[NEW], { trail: true, othersEased: true, before: '<S>,<S2>,<S3>,<X>', dropFrame: { dom: '<S2>,<S3>,<X>,<S>', moving: ['<S>'] }, settled: true, kept: true, problems: [] });
+  const was = kept(FILE, 'frames');
+  assert.deepEqual(now, was);
+  assert.deepEqual(now, { trail: true, othersEased: true, before: '<S>,<S2>,<S3>,<X>', dropFrame: { dom: '<S2>,<S3>,<X>,<S>', moving: ['<S>'] }, settled: true, kept: true, problems: [] });
 });

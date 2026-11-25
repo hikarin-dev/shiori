@@ -1,6 +1,6 @@
 // overview-next-phone.browser.mjs — the overview on a phone (a touch screen, a coarse pointer, no hover),
-// the one page's (/overview-next) against 1.3's (/overview), both driven alike over one seeded library
-// (overview-drive.mjs), 1.3's page the oracle. At 390 and 600 wide: a series (its chapters, its volumes),
+// the one page's (/overview-next) held to what 1.3's (/overview) gave driven alike over one seeded
+// library (overview-drive.mjs). At 390 and 600 wide: a series (its chapters, its volumes),
 // a gallery, edit mode and a row's pages open, every part's box within a pixel, the same words, the same
 // text sizes, the same targets for a finger (a row's buttons and the header's Settings 40px, the hero's
 // buttons 34, the grip 14 × 30, the view tabs 32 tall). No sideways scroll at any width from 320 to 640,
@@ -12,12 +12,18 @@
 // nothing; what a press opens (the delete's question, the tag editor, the re-run menu) inside the window,
 // every button in reach; the add list with the on-screen keyboard's room taken (a window 500 tall).
 // (§5.3 F18: the heading's weight 700 → 600 and its count 1.1px nearer; F69: the add list a popup.)
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { readDialog, answer } from './library-drive.mjs';
-import { openRun, nextBase, gid, visit, read, boxes, boxDiff, named, outcome, rowSel, sleep, OLD, NEW } from './overview-drive.mjs';
+import { record } from './records.mjs';
+import { openRun, nextBase, gid, visit, read, boxes, boxDiff, named, outcome, rowSel, sleep, NEW } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 const PHONE = { width: 390, height: 844, hasTouch: true, isMobile: true };
 let server, origin, browser, page, base;
 
@@ -67,23 +73,19 @@ const views = {
   },
 };
 
-async function both(part, { viewport = PHONE, then } = {}) {
+async function shown(part, { viewport = PHONE, then } = {}) {
   await page.setViewport(viewport);
-  const got = {};
-  for (const path of [OLD, NEW]) {
-    await page.evaluate(() => localStorage.removeItem('shiori:seriesView'));
-    await visit(page, origin, path, gid(base, part));
-    if (then) await then(page);
-    got[path] = { read: plainRead(named(await page.evaluate(read), base)), boxes: await page.evaluate(boxes), finger: await page.evaluate(finger) };
-  }
-  return got;
+  await page.evaluate(() => localStorage.removeItem('shiori:seriesView'));
+  await visit(page, origin, NEW, gid(base, part));
+  if (then) await then(page);
+  return { read: plainRead(named(await page.evaluate(read), base)), boxes: await page.evaluate(boxes), finger: await page.evaluate(finger) };
 }
 
 for (const width of [390, 600]) {
   for (const [name, part, then] of [['a series', 'S'], ['its volumes', 'S', views.volumes], ['a gallery', 'G'], ['edit mode', 'S', views.edit], ['a row\'s pages open', 'S', views.pages]]) {
     test(`on a phone ${width} wide, ${name}: every part's box, the words, the text sizes and a finger's targets as 1.3's`, { skip: !chromePath() }, async () => {
-      const got = await both(part, { viewport: { ...PHONE, width }, then });
-      const [was, now] = [got[OLD], got[NEW]];
+      const now = await shown(part, { viewport: { ...PHONE, width }, then });
+      const was = record(FILE, 'form', `${width} ${name}`);
       assert.deepEqual(F18(boxDiff(was.boxes, now.boxes, 1)), []);
       assert.deepEqual(now.read, was.read);
       // F18: the heading's weight (600 for 700); its size and line as 1.3's.
@@ -99,26 +101,24 @@ for (const width of [390, 600]) {
   }
 }
 
-test('no sideways scroll at any width from 320 to 640 on either page, a series and a gallery; every box alike at each', { skip: !chromePath() }, async () => {
+test('no sideways scroll at any width from 320 to 640, as on 1.3\'s page, a series and a gallery; every box alike at each', { skip: !chromePath() }, async () => {
   const widths = Array.from({ length: 17 }, (_, i) => 320 + i * 20);
   for (const part of ['S', 'G']) {
-    const got = {};
-    for (const path of [OLD, NEW]) {
-      await page.setViewport({ ...PHONE, width: 320 });
-      await visit(page, origin, path, gid(base, part));
-      got[path] = [];
-      for (const width of widths) {
-        await page.setViewport({ ...PHONE, width });
-        await sleep(150);
-        got[path].push({ width: await page.evaluate(() => innerWidth), sideways: await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), boxes: await page.evaluate(boxes) });
-      }
+    const now = [];
+    await page.setViewport({ ...PHONE, width: 320 });
+    await visit(page, origin, NEW, gid(base, part));
+    for (const width of widths) {
+      await page.setViewport({ ...PHONE, width });
+      await sleep(150);
+      now.push({ width: await page.evaluate(() => innerWidth), sideways: await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), boxes: await page.evaluate(boxes) });
     }
+    const kept = record(FILE, 'widths', part);
     for (const [i, width] of widths.entries()) {
-      const [was, now] = [got[OLD][i], got[NEW][i]];
-      assert.equal(now.width, width);
+      const [was, at] = [kept[i], now[i]];
+      assert.equal(at.width, width);
       assert.equal(was.sideways, false, `1.3's at ${width}`);
-      assert.equal(now.sideways, false, `at ${width}`);
-      assert.deepEqual(F18(boxDiff(was.boxes, now.boxes, 1)), [], `${part} at ${width}`);
+      assert.equal(at.sideways, false, `at ${width}`);
+      assert.deepEqual(F18(boxDiff(was.boxes, at.boxes, 1)), [], `${part} at ${width}`);
     }
   }
 });
@@ -149,7 +149,8 @@ async function taps(path) {
 }
 
 test('a finger: a tap does what a click does, and the tips Shift\'s faces give, as 1.3\'s', { skip: !chromePath() }, async () => {
-  const was = await taps(OLD), now = await taps(NEW);
+  const now = await taps(NEW);
+  const was = record(FILE, 'taps');
   assert.deepEqual(now, was);
   assert.equal(was.heart.fav, 'true');
   assert.deepEqual(was.pages.open, ['<S2>']);
@@ -159,17 +160,17 @@ test('a finger: a tap does what a click does, and the tips Shift\'s faces give, 
 
 // The re-run menu: a long press gives the browser's context menu event on a phone, as a right click does.
 test('the re-run menu from a long press on a translated chapter\'s translate button: inside the window, its steps as 1.3\'s', { skip: !chromePath() }, async () => {
-  const got = {};
-  for (const path of [OLD, NEW]) {
+  let now;
+  {
     await page.setViewport(PHONE);
-    await visit(page, origin, path, gid(base, 'S'));
+    await visit(page, origin, NEW, gid(base, 'S'));
     const sel = `${rowSel(base, 'S3')} [data-translate]`;
     await page.$eval(sel, (el) => el.scrollIntoView({ block: 'center' }));
     await sleep(200);
     await page.$eval(sel, (el) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 2 })); });
     await until(page, () => [...document.querySelectorAll('.rerun-menu')].some((m) => m.getClientRects().length && m.querySelectorAll('[role="menuitem"], .ctx-menu-item').length), null, { what: 'the menu' });
     await sleep(300);
-    got[path] = await page.evaluate(() => {
+    now = await page.evaluate(() => {
       const m = [...document.querySelectorAll('.rerun-menu')].find((el) => el.getClientRects().length);
       const r = m.getBoundingClientRect();
       return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, steps: [...m.querySelectorAll('[role="menuitem"], .ctx-menu-item')].map((i) => i.textContent.replace(/\s+/g, ' ').trim()) };
@@ -177,8 +178,9 @@ test('the re-run menu from a long press on a translated chapter\'s translate but
     await page.keyboard.press('Escape');
     await sleep(300);
   }
-  assert.deepEqual(got[NEW], got[OLD]);
-  assert.equal(got[OLD].inside, true);
+  const was = record(FILE, 'menu');
+  assert.deepEqual(now, was);
+  assert.equal(was.inside, true);
 });
 
 // A finger on the grip: the row follows it, the page stays still under it, and the drop is written as
@@ -234,8 +236,8 @@ async function fingerDrag(path) {
 }
 
 test('a finger drags a row by its grip as 1.3\'s, and scrolls the page from anywhere else on a row', { skip: !chromePath() }, async () => {
-  const was = await fingerDrag(OLD);
   const now = await fingerDrag(NEW);
+  const was = record(FILE, 'finger-drag');
   assert.deepEqual(now, was);
   assert.deepEqual([was.scrolled, was.draggedByWords, was.mid.dragging, was.stillUnder, was.edgeScrolled], [true, false, true, true, true]);
 });
@@ -250,10 +252,10 @@ function inside() {
 }
 
 test('the delete\'s question and the tag editor on a phone: inside the window, every button in reach, as 1.3\'s', { skip: !chromePath() }, async () => {
-  const got = {};
-  for (const path of [OLD, NEW]) {
+  let now;
+  {
     await page.setViewport(PHONE);
-    await visit(page, origin, path, gid(base, 'S'));
+    await visit(page, origin, NEW, gid(base, 'S'));
     const r = {};
     await page.$eval(`${rowSel(base, 'S2')} [data-remove]`, (el) => el.scrollIntoView({ block: 'center' }));
     await sleep(200);
@@ -272,10 +274,11 @@ test('the delete\'s question and the tag editor on a phone: inside the window, e
     r.tags = await page.evaluate(inside);
     await page.keyboard.press('Escape');
     await sleep(300);
-    got[path] = r;
+    now = r;
   }
-  assert.deepEqual([got[NEW].question.title, got[NEW].question.buttons], [got[OLD].question.title, got[OLD].question.buttons]);
-  for (const r of [got[OLD].question, got[OLD].tags, got[NEW].question, got[NEW].tags]) assert.deepEqual([r.inside, r.reachable], [true, true], JSON.stringify(got));
+  const was = record(FILE, 'opens');
+  assert.deepEqual([now.question.title, now.question.buttons], [was.question.title, was.question.buttons]);
+  for (const r of [was.question, was.tags, now.question, now.tags]) assert.deepEqual([r.inside, r.reachable], [true, true], JSON.stringify({ was, now }));
 });
 
 // The on-screen keyboard takes the window's lower part: the add list, typed into, stays inside what is

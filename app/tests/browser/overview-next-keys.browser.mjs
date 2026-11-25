@@ -1,6 +1,6 @@
-// overview-next-keys.browser.mjs — the overview by the keyboard, the one page's (/overview-next) against
-// 1.3's (/overview), both driven alike over one seeded library (overview-drive.mjs; the translation
-// server's stand-in answering, so a row has its translate button), 1.3's page the oracle. The keys 1.3's
+// overview-next-keys.browser.mjs — the overview by the keyboard, the one page's (/overview-next) held to
+// what 1.3's (/overview) gave driven alike over one seeded library (overview-drive.mjs; the translation
+// server's stand-in answering, so a row has its translate button). The keys 1.3's
 // overview answers: Tab through every control (the header's, the hero's, the tags, the view's tabs, each
 // row's links and buttons, the add box); a row's buttons shown while focus came there by a key (1.3's
 // key-focus) and not after a press; Enter and Space on the hero's buttons, a row's arrows and its pages'
@@ -14,12 +14,18 @@
 // nav (F44's choice; 1.3: two stops, no arrows); a menu's arrows reach its disabled items (F39); Escape in
 // a title box puts its saved words back (F40); in edit mode the category and rating among the details,
 // which open the tag editor, are reached by Tab too (1.3: by the pointer alone).
+// What 1.3's page gave is the record (records/<this file>.<table>.json, records.mjs), 1.3's behaviour as
+// measured on 2026-11-25, which a deliberate change of the overview's behaviour edits in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { startTranslator } from './stand-in-translator.mjs';
-import { openRun, nextBase, gid, visit, named, rowSel, outcome, sleep, OLD, NEW } from './overview-drive.mjs';
+import { record } from './records.mjs';
+import { openRun, nextBase, gid, visit, named, rowSel, outcome, sleep, NEW } from './overview-drive.mjs';
 
+const FILE = basename(fileURLToPath(import.meta.url));
 let server, origin, browser, tr;
 before(async () => {
   if (!chromePath()) return;
@@ -199,8 +205,9 @@ async function facts(path) {
   return r;
 }
 
-test('the keyboard on the overview: every key 1.3\'s answers, the same on both pages but the differences named', { skip: !chromePath() }, async () => {
-  const was = await facts(OLD), now = await facts(NEW);
+test('the keyboard on the overview: every key 1.3\'s answers, as on 1.3\'s page but the differences named', { skip: !chromePath() }, async () => {
+  const now = await facts(NEW);
+  const was = record(FILE, 'keys');
   // The view's tabs: one Tab stop, the arrows moving between them (F44's choice).
   assert.deepEqual(now.order, was.order.filter((n) => n !== 'view:volumes'));
   assert.ok(was.order.includes('view:volumes'));

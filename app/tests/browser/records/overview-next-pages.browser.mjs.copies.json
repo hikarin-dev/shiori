@@ -1,0 +1,18 @@
+{
+  "1": {
+    "tile": 124,
+    "widths": [
+      "192"
+    ],
+    "inView": 21,
+    "viewFirst": true
+  },
+  "2": {
+    "tile": 124,
+    "widths": [
+      "384"
+    ],
+    "inView": 21,
+    "viewFirst": true
+  }
+}

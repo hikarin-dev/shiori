@@ -1,0 +1,17 @@
+{
+  "question": {
+    "title": "Delete this gallery?",
+    "buttons": [
+      "Cancel",
+      "Delete"
+    ],
+    "inside": true,
+    "reachable": true,
+    "count": 2
+  },
+  "tags": {
+    "inside": true,
+    "reachable": true,
+    "count": 2
+  }
+}

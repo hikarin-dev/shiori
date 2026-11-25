@@ -1,0 +1,207 @@
+{
+  "order": [
+    "header:a:Shiori",
+    "#pageNav",
+    "#settingsBtn",
+    "#seriesCover",
+    "hero-title-link",
+    "#readStart",
+    "#favToggle",
+    "#editToggle",
+    "#ovSource",
+    "tag:japanese2",
+    "tag:someone2",
+    "tag:a circle2",
+    "tag:original2",
+    "tag:a hero2",
+    "tag:glasses ♀2",
+    "tag:beard ♂2",
+    "tag:alpha2",
+    "tag:beta2",
+    "view:chapters",
+    "view:volumes",
+    "<S> thumb",
+    "<S> title-link",
+    "<S> id-link",
+    "<S> down",
+    "<S> download",
+    "<S> translate",
+    "<S> detach",
+    "<S> remove",
+    "<S> expand",
+    "<S2> thumb",
+    "<S2> title-link",
+    "<S2> id-link",
+    "<S2> up",
+    "<S2> down",
+    "<S2> download",
+    "<S2> translate",
+    "<S2> detach",
+    "<S2> remove",
+    "<S2> expand",
+    "<S3> thumb",
+    "<S3> title-link",
+    "<S3> up",
+    "<S3> down",
+    "<S3> download",
+    "<S3> translate",
+    "<S3> detach",
+    "<S3> remove",
+    "<S3> expand",
+    "<X> title-link",
+    "<X> up",
+    "<X> detach",
+    "<X> remove",
+    "#addSearch",
+    "body"
+  ],
+  "keyFocus": {
+    "cls": true,
+    "opacity": "1",
+    "ring": true
+  },
+  "afterPress": {
+    "focused": true,
+    "ring": 0
+  },
+  "afterPressKey": {
+    "ring": 1,
+    "keyFocus": 0
+  },
+  "editByEnter": true,
+  "editOffBySpace": true,
+  "favBySpace": true,
+  "favOffByEnter": true,
+  "pagesByEnter": true,
+  "pagesOffBySpace": true,
+  "upByEnter": {
+    "order": [
+      "<S>",
+      "<S3>",
+      "<S2>:The second",
+      "<V1>",
+      "<V2>:Volume two",
+      "<X>:Gone"
+    ],
+    "focus": "<S3> up"
+  },
+  "downBySpace": {
+    "order": [
+      "<S>",
+      "<S2>:The second",
+      "<S3>",
+      "<V1>",
+      "<V2>:Volume two",
+      "<X>:Gone"
+    ],
+    "focus": "<S3> down"
+  },
+  "volumesByEnter": 2,
+  "arrowLeft": {
+    "focus": "view:volumes",
+    "rows": 2
+  },
+  "thenSpace": 2,
+  "shiftUnderPointer": [
+    "<path d=\"M3 6h18\"></path>",
+    "<path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"></path>",
+    "",
+    "<path d=\"M3 6h18\"></path>",
+    "",
+    "<path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"></path>",
+    "",
+    "<path d=\"M3 6h18\"></path>",
+    "<path d=\"M3 6h18\"></path>"
+  ],
+  "shiftOnFocus": [
+    "<path d=\"M3 6h18\"></path>",
+    ""
+  ],
+  "question": {
+    "dialog": true,
+    "menu": false,
+    "tags": false
+  },
+  "questionEscape": {
+    "dialog": false,
+    "menu": false,
+    "tags": false,
+    "kept": true
+  },
+  "menu": {
+    "dialog": false,
+    "menu": true,
+    "tags": false
+  },
+  "menuArrow": "",
+  "menuEscape": {
+    "dialog": false,
+    "menu": false,
+    "tags": false,
+    "focus": "<S3> translate"
+  },
+  "tagsEscape": {
+    "dialog": false,
+    "menu": false,
+    "tags": false
+  },
+  "titleEscape": "The second typed",
+  "editTab": [
+    "#seriesTitle",
+    "#readStart",
+    "#favToggle",
+    "#editToggle",
+    "#ovSource",
+    "tag:japanese2",
+    "tag:someone2",
+    "tag:a circle2",
+    "tag:original2",
+    "tag:a hero2",
+    "tag:glasses ♀2",
+    "tag:beard ♂2"
+  ],
+  "enterSaved": {
+    "focus": "<S3> row-title-box",
+    "series": [
+      "<S>",
+      "<S2>:The second typed",
+      "<S3>:Keyed title",
+      "<V1>",
+      "<V2>:Volume two",
+      "<X>:Gone"
+    ]
+  },
+  "out": true,
+  "addTyped": {
+    "open": true,
+    "focus": "addSearch",
+    "sel": 0
+  },
+  "addArrow": {
+    "open": true,
+    "focus": "addSearch",
+    "sel": 0
+  },
+  "addEscape": {
+    "open": true,
+    "focus": "addSearch",
+    "sel": 0
+  },
+  "addTab": {
+    "open": true,
+    "focus": "body",
+    "sel": 0
+  },
+  "dragEscape": {
+    "dragging": false,
+    "order": [
+      "<S>",
+      "<S2>:The second typed",
+      "<S3>:Keyed title",
+      "<V1>",
+      "<V2>:Volume two",
+      "<X>:Gone"
+    ]
+  },
+  "problems": []
+}
