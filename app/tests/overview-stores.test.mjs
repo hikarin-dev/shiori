@@ -202,6 +202,28 @@ test('the covers of an overview shown before are there at once for the next, eac
   next.covers.stop();
 });
 
+test('an answer still on its way to an overview shown before is not taken by the next for its own request', () => {
+  // One channel, as one document has: the first page asks and is left before its answer comes.
+  const controls = new Set(), said = [];
+  const world = () => {
+    const covers = createOverviewCovers({ rpc: (msg) => said.push(msg), onControl: (cb) => { controls.add(cb); return () => controls.delete(cb); }, timers: handTimers() });
+    covers.start();
+    return covers;
+  };
+  const push = (msg) => { for (const cb of [...controls]) cb(msg); };
+  const first = world();
+  first.want('30');                                  // a row's cover: the first page's first request
+  first.stop();
+  const next = world();
+  next.want('7', { preferSeries: true, width: 480 });   // the hero's: the next page's first request
+  assert.notEqual(said[0].requestId, said[1].requestId, 'each page\'s requests are its own');
+  push({ type: 'COVER_READY', requester: 'overview', requestId: said[0].requestId, coverDataUrl: 'data:row-thirty' });
+  assert.equal(next.get(coverKey('7', true, 480)), null, 'the late answer is nobody\'s');
+  push({ type: 'COVER_READY', requester: 'overview', requestId: said[1].requestId, coverDataUrl: 'data:seven' });
+  assert.equal(next.get(coverKey('7', true, 480)), 'data:seven');
+  next.stop();
+});
+
 test('the page grids\' copies: 1.5 times the tile\'s pixels (zoom and pinch included), stepped by 32, at most 768; 1.3\'s bounds', () => {
   // 1.3's own formula (app/js/overview.js _pageThumbWidth), for the tiles' widths a grid has.
   const old = (tileW, dpr, vv) => Math.min(768, Math.ceil((tileW || 120) * (dpr || 1) * (vv || 1) * 1.5 / 32) * 32);

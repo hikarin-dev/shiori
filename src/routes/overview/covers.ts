@@ -3,7 +3,10 @@
 // gallery's own otherwise, 480 wide) and each row's (160 wide). Asked through the library's cover
 // service (GET_COVER, requester 'overview', a request id each), its answer (COVER_READY for that id,
 // from whichever context made it) kept by role, gallery and width; no answer in 10 s is none (asked
-// again the next time it is wanted). Asked again (again()) when its gallery changed, the cover kept
+// again the next time it is wanted). A request's id is this page's own: it carries a mark made as the
+// page starts, so an answer still on its way to an overview shown before (or to one in another tab) is
+// never taken for this one's (numbered from 1 by each, as 1.3's were, a late answer to the last page's
+// request 7 was this page's request 7: its hero drawn with a row's cover). Asked again (again()) when its gallery changed, the cover kept
 // showing until the new answer: a view reading it (subscribe, get) sees a change only when a
 // different picture came. Nothing is written anywhere: the service decides what it keeps.
 //
@@ -22,6 +25,7 @@ export type OverviewCoverDeps = {
   onControl: (cb: (msg: Control) => void) => () => void;
   timers?: Timers;
   kept?: Map<string, string>;
+  mark?: string;
 };
 
 export const WAIT_MS = 10000;
@@ -39,6 +43,7 @@ export function createOverviewCovers(deps: OverviewCoverDeps) {
   const mine = new Set<string>();   // the keys this page has asked for
   const asking = new Map<string, { key: string; timer: unknown }>();   // request id → its key
   const listeners = new Set<() => void>();
+  const mark = deps.mark ?? Math.random().toString(36).slice(2, 10);
   let seq = 0;
   let off: (() => void) | null = null;
 
@@ -64,7 +69,7 @@ export function createOverviewCovers(deps: OverviewCoverDeps) {
   function request(gid: string, preferSeries: boolean, width: number) {
     const key = coverKey(gid, preferSeries, width);
     mine.add(key);
-    const requestId = `ov-${++seq}`;
+    const requestId = `ov-${mark}-${++seq}`;
     asking.set(requestId, { key, timer: timers.setTimeout(() => asking.delete(requestId), WAIT_MS) });
     deps.rpc({ type: 'GET_COVER', galleryId: String(gid), thumbWidth: width, preferSeries, requester: 'overview', requestId });
   }
