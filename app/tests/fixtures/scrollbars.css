@@ -1,10 +1,10 @@
 /* scrollbars.css — the stylesheet of the bare pages the scrollbar tests draw app/js/scrollbar.js on
    (app/tests/browser/scrollbar*.browser.mjs, through harness.mjs scrollbarsSheet, and
    desktop/tests/scrollbars.test.mjs): 1.3's base.css, which its pages shared (app/base.css until
-   2026-11-27): the design tokens, the reset, UI font and reduced motion, the scrollbars, the tooltip,
-   the dialog button, the icon button, the switch. The one page's own are src/styles/ (tokens.css,
-   document.css, scrollbars.css, tooltip.css). Its import is relative to the address it is served
-   at, one level under the site's root. */
+   2026-11-27), less what no bare page draws (its header, tooltip, dialog button, icon button and
+   switch): the design tokens, the reset, UI font and reduced motion, the scrollbars. The one page's
+   own are src/styles/ (tokens.css, document.css, scrollbars.css, tooltip.css). Its import is
+   relative to the address it is served at, one level under the site's root. */
 
 @import url('../vendor/overlayscrollbars/overlayscrollbars.min.css');
 
@@ -44,12 +44,6 @@ body {
   color: var(--text);
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
-}
-/* Reserve only the space a native page scrollbar would take. The header's background can
-   still reach the viewport edge while its controls share the body's stable content width. */
-body > header {
-  margin-right: calc(-1 * var(--page-scrollbar-gap));
-  padding-right: calc(var(--header-padding-x, 20px) + var(--page-scrollbar-gap));
 }
 /* The UI font's code ligatures redraw runs like the "//" in a URL — show text as typed. Form
    controls are named too, as some browsers reset their font instead of inheriting it. */
@@ -159,138 +153,3 @@ html.overlay-scroll-target[data-overlayscrollbars-viewport] > body { scrollbar-w
   .overlay-scroll-target::-webkit-scrollbar { width: auto; }
   .overlay-scroll-target[data-overlayscrollbars-viewport]::-webkit-scrollbar { width: auto !important; height: auto !important; }
 }
-
-/* ── Tooltip (tooltip.js): one line, or a first line with dimmer lines under it; "label  value"
-   rows, and a short badge that can open the tip or a row ── */
-.shiori-tip {
-  position: fixed; left: 0; top: 0; z-index: 9999;
-  display: none;
-  max-width: min(360px, calc(100vw - 20px));
-  padding: 3px 7px;
-  background: #222; color: #eee;
-  border: 1px solid #555; border-radius: 4px;
-  font-size: 11px; white-space: pre-wrap;
-  pointer-events: none;
-}
-.shiori-tip-sub { margin-top: 2px; color: #9a9aac; }
-.shiori-tip-pair { display: flex; justify-content: space-between; gap: 14px; }
-.shiori-tip-pair + .shiori-tip-pair { margin-top: 2px; }
-.shiori-tip-value { color: #9a9aac; }
-.shiori-tip-badge {
-  display: inline-block; margin-right: 6px; padding: 0 5px;
-  background: var(--text); color: var(--bg);
-  border-radius: 3px; font-weight: 700; line-height: 15px;
-}
-
-/* ── Button in dialogs and the toast: neutral, or .primary / .danger ── */
-.btn {
-  flex: none;
-  padding: 7px 14px;
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.55;
-  cursor: pointer;
-}
-.btn:hover:not(:disabled) { border-color: var(--muted); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn.danger { background: var(--danger-fill); border-color: transparent; color: var(--danger); }
-.btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
-.btn.danger:hover:not(:disabled) { background: var(--danger-fill-hover); border-color: transparent; }
-.btn:disabled { opacity: .6; cursor: default; }
-
-/* ── Icon button in a dialog's or the toast's corner: the close X, or a link beside it ── */
-.icon-btn {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  color: var(--muted);
-  cursor: pointer;
-  text-decoration: none;
-}
-.icon-btn:hover { background: var(--surface-raised); color: var(--text); }
-.icon-btn[hidden] { display: none; }
-.icon-btn > svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* ── Switch: a hidden checkbox and its track (both class sets are retained for independently
-   supplied cards) ── */
-.switch-control,
-.toggle {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  cursor: pointer;
-}
-
-.switch-control input,
-.toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.switch-track,
-.slider {
-  position: absolute;
-  inset: 0;
-  background: #303038;
-  border: 1px solid #4a4a55;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color .15s ease, border-color .15s ease;
-}
-
-.switch-track::after,
-.slider::before {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  background: #b3b3bf;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
-  transition: background-color .15s ease, transform .15s ease;
-}
-
-.switch-control input:checked + .switch-track,
-.toggle input:checked + .slider {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.switch-control input:checked + .switch-track::after,
-.toggle input:checked + .slider::before {
-  background: #fff;
-  transform: translateX(16px);
-}
-
-/* The checkbox itself is hidden, so its track shows the browser's own focus ring. */
-.switch-control input:focus-visible + .switch-track,
-.toggle input:focus-visible + .slider {
-  outline: auto 1px -webkit-focus-ring-color;
-}
-
