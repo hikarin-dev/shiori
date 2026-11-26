@@ -46,10 +46,13 @@ test('install blocks on code only, within a sane byte budget', () => {
 });
 
 test('the heavy assets are deferred, not awaited during install', () => {
-  // The install handler must await BOOT and nothing else.
+  // The install handler fetches BOOT and nothing else: of the deferred assets it only copies those a
+  // cache before it holds (what it has to wait on for that is reading them, not the network).
   const install = sw.match(/addEventListener\('install'[\s\S]*?\n\}\);/)[0];
   assert.match(install, /await Promise\.all\(BOOT\.map/, 'install should await the BOOT set');
-  assert.doesNotMatch(install, /DEFERRED/, 'install must not touch the deferred assets');
+  const copied = install.slice(install.indexOf('DEFERRED'));
+  assert.match(copied, /^DEFERRED\.map\(async \(u\) => \{\n\s+const copy = await heldCopy\(u, held\)/, 'the deferred assets are only copied where held');
+  assert.doesNotMatch(copied, /releaseCopy|fetch\(/, 'install must not fetch the deferred assets');
 
   const deferred = shell.filter((u) => !installed(u));
   assert.ok(bytes(deferred) > bytes(shell.filter(installed)),

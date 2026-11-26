@@ -5,7 +5,7 @@
 //
 // It has to live at the repo root: a worker under /app/ can only control /app/*, and GitHub Pages
 // can't grant a wider scope via the Service-Worker-Allowed header. Same two roles as before —
-// app-shell cache (stale-while-revalidate) + background job runner. (See ARCHITECTURE.md §2.)
+// app-shell cache (this release's files, answered from the cache) + background job runner. (See ARCHITECTURE.md §2.)
 //
 // A site whose library the desktop app keeps registers it as sw.js?library=desktop: then it keeps
 // the app's files and nothing else. That site's jobs run in its pages, against the desktop library;
@@ -80,13 +80,35 @@ async function releaseCopy(u) {
   return new Response(body, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
 }
 
+// This release's copy of the file at `u` from a cache an earlier worker of this site filled (or an
+// earlier try of this one's), its bytes checked as a fetched copy's are; null where none has it.
+async function heldCopy(u, held) {
+  const href = new URL(u, ROOT).href;
+  for (const cache of held) {
+    const hit = await cache.match(href);
+    if (!hit) continue;
+    const body = await hit.arrayBuffer();
+    if (await isRelease(u, body)) return new Response(body, { status: hit.status, statusText: hit.statusText, headers: hit.headers });
+  }
+  return null;
+}
+
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(await cacheName());
+    // A file this release shares with the one before is copied from that one's cache; only what
+    // changed is fetched. (Copied now: the caches before go when this worker takes over.)
+    const held = await Promise.all((await caches.keys())
+      .filter((k) => k.startsWith(`${CACHE_PREFIX}-shell-v`) || /^shiori-shell-v\d+$/.test(k)).map((k) => caches.open(k)));
     // All-or-nothing for code: a partial shell must never replace a healthy one, so a failed
     // fetch, or a copy that isn't this release's, fails the whole install and the old worker + cache
     // stay in place.
-    await Promise.all(BOOT.map(async (u) => cache.put(new URL(u, ROOT).href, await releaseCopy(u))));
+    await Promise.all(BOOT.map(async (u) => cache.put(new URL(u, ROOT).href, await heldCopy(u, held) ?? await releaseCopy(u))));
+    // What comes later is copied where it is held, and otherwise fetched when the app is idle.
+    await Promise.all(DEFERRED.map(async (u) => {
+      const copy = await heldCopy(u, held).catch(() => null);
+      if (copy) await cache.put(new URL(u, ROOT).href, copy);
+    }));
     // A batch of imports running in the worker this one replaces would end with it: then this one
     // waits, and takes over once that worker's imports are done (__shioriTakeOver).
     if (!await platform.jobs.workerImporting()) self.skipWaiting();
@@ -104,42 +126,6 @@ async function warmDeferredShell() {
   if (missing.length) await Promise.allSettled(missing.map(async (u) => cache.put(new URL(u, ROOT).href, await releaseCopy(u))));
 }
 
-// A cached file is checked against the server too: asked whether it changed since (its ETag /
-// Last-Modified), so an unchanged file costs a bodiless 304 and writes nothing. The browser's HTTP
-// cache is bypassed, so the check doesn't store a second copy there. The cache never takes what the
-// check finds (it holds this release, whole): another copy on the server means another release (or a
-// host's edge still handing out an older one), and the browser is asked to look for the worker, whose
-// new version installs whole, takes over, and is what tells the pages (app-update.js). Resolves true
-// when the server had another copy.
-async function revalidateEntry(key, cached, target = key) {
-  const etag = cached.headers.get('etag');
-  const modified = cached.headers.get('last-modified');
-  const headers = new Headers();
-  if (etag) headers.set('If-None-Match', etag);
-  if (modified) headers.set('If-Modified-Since', modified);
-  const resp = await fetch(target, { headers, cache: 'no-store' });
-  if (resp.status === 304 || !resp.ok || resp.type !== 'basic') return false;
-  if (await isRelease(pathOf(key), await resp.arrayBuffer())) return false;
-  self.registration.update().catch(() => {});
-  return true;
-}
-
-// Every cached file checked the same way, a few at a time. Returns how many the server has another
-// copy of.
-async function refreshShell() {
-  const cache = await caches.open(await cacheName());
-  const requests = await cache.keys();
-  let changed = 0;
-  for (let i = 0; i < requests.length; i += 8) {
-    await Promise.all(requests.slice(i, i + 8).map(async (request) => {
-      const cached = await cache.match(request);
-      if (cached && await revalidateEntry(request.url, cached).catch(() => false)) changed++;
-    }));
-  }
-  return changed;
-}
-let _lastShellCheck = 0;
-
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
     const current = await cacheName();
@@ -154,9 +140,13 @@ self.addEventListener('activate', (e) => {
   })());
 });
 
-// Stale-while-revalidate (cached copy answers instantly; background fetch refreshes; a hard reload
-// goes network-first). Clean page navigations (root → library, /settings, /reader) are mapped to
-// the file that answers them (app/js/pages.js) — for both the cache key and the network fetch — so
+// A file of this release is answered from the cache, without asking the server: its bytes were
+// checked as it was stored, and the list is the release. A new release is a new sw.js, which the
+// browser looks for itself (at each navigation; app-update.js asks too when a page left open comes
+// back to view): its worker installs whole, takes over, and is what tells the pages (app-update.js).
+// What the cache doesn't hold goes to the network. Clean page navigations (root → library,
+// /settings, /reader) are mapped to the file that answers them (app/js/pages.js) — for both the cache
+// key and the network fetch — so
 // the address bar stays clean while the served document loads its assets from where they are (a
 // page's own file through its <base>, which resolves to the app folder; the one page from the
 // root, every address being one segment under it). Everything else (the /app/* assets, /icons/*,
@@ -185,31 +175,22 @@ self.addEventListener('fetch', (e) => {
 
   e.respondWith((async () => {
     const cache = await caches.open(await cacheName());
+    const cached = await cache.match(key);
+    if (cached) return cached;
     // A file it doesn't hold yet is kept once it is this release's copy (what the idle tier brings,
     // and what only a route not installed draws with).
-    const refresh = async () => {
+    try {
       const resp = await fetch(navFile ? key + url.search : req, navFile ? { cache: req.cache } : undefined);
-      if (resp && resp.ok && resp.type === 'basic' && !resp.redirected) {
+      if (resp.ok && resp.type === 'basic' && !resp.redirected) {
         const copy = resp.clone();
         e.waitUntil(copy.arrayBuffer().then(async (body) => {
           if (await isRelease(pathOf(key), body)) await cache.put(key, new Response(body, { status: copy.status, statusText: copy.statusText, headers: copy.headers }));
         }).catch(() => {}));
       }
       return resp;
-    };
-    if (req.cache !== 'reload' && req.cache !== 'no-store') {
-      const cached = await cache.match(key);
-      if (cached) {
-        e.waitUntil(revalidateEntry(key, cached, navFile ? key + url.search : req.url).catch(() => {}));
-        return cached;
-      }
+    } catch {
+      return new Response('', { status: 504 });
     }
-    try {
-      const resp = await refresh();
-      if (resp) return resp;
-    } catch {}
-    const cached = await cache.match(key);
-    return cached || new Response('', { status: 504 });
   })());
 });
 
@@ -295,20 +276,12 @@ self.addEventListener('message', (e) => {
   const d = e.data;
   if (d && d.__shioriTakeOver) { self.skipWaiting(); return; }
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
-  // Updating: every cached file checked before the pages reload (answered on the port).
-  if (d && d.__shioriRefreshShell) {
-    e.waitUntil(refreshShell().catch(() => 0).then((changed) => e.ports[0]?.postMessage({ changed })));
-    return;
-  }
-  // A page left open looks for a newer version now and then: another copy on the server has the
-  // browser look for the worker.
-  if (d && d.__shioriCheckShell) {
-    if (Date.now() - _lastShellCheck > 5 * 60 * 1000) {
-      _lastShellCheck = Date.now();
-      e.waitUntil(refreshShell().catch(() => 0));
-    }
-    return;
-  }
+  // Updating: a page asks for its files to be brought up to date before it reloads (answered on the
+  // port). They are: the cache is this release, whole.
+  if (d && d.__shioriRefreshShell) { e.ports[0]?.postMessage({ changed: 0 }); return; }
+  // (A page left open asks the browser itself to look for a newer worker now and then; the
+  // __shioriCheckShell it sends this one too, from before, has nothing left to do here.)
+  if (d && d.__shioriCheckShell) return;
   if (FILES_ONLY) return;
   if (d && d.__shioriPoll) {
     e.waitUntil((async () => {

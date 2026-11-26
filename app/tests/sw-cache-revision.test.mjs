@@ -139,7 +139,7 @@ test('the independent revision refreshes both agent entry points during install'
   const install = sw.match(/addEventListener\('install'[\s\S]*?\n\}\);/)[0];
   assert.match(install, /caches\.open\(await cacheName\(\)\)/,
     'install must populate the independently revisioned cache');
-  assert.match(install, /Promise\.all\(BOOT\.map\(async \(u\) => cache\.put\(new URL\(u, ROOT\)\.href, await releaseCopy\(u\)\)\)\)/,
+  assert.match(install, /Promise\.all\(BOOT\.map\(async \(u\) => cache\.put\(new URL\(u, ROOT\)\.href, await heldCopy\(u, held\) \?\? await releaseCopy\(u\)\)\)\)/,
     'install must replace every boot asset, including both agent entry points, each as this release has it');
 });
 

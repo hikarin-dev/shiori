@@ -2,9 +2,9 @@
 // file it keeps. Its install fetches every file past the browser's cache and checks its bytes against
 // the hash its list names: one other copy (a host's edge can hand out an older one for minutes after a
 // release) fails the install whole, so the worker before it stays in charge and the browser tries again.
-// And once installed, its cache never takes another copy: a check that finds one on the server asks the
-// browser to look for the new worker instead, and a file fetched on first use is kept only as this
-// release has it.
+// What a cache of the release before holds as this release has it is copied, not fetched. Once
+// installed, a file of the release is answered from the cache without asking the server, and a file
+// fetched on first use is kept only as this release has it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -64,11 +64,10 @@ function server(other = {}) {
   return { fetch, asked };
 }
 
-// The built sw.js in a worker scope of its own: its listeners, and what it asked the registration for.
+// The built sw.js in a worker scope of its own: its listeners and its caches.
 let instance = 0;
 async function worker(fetch) {
   const listeners = {};
-  const updates = [];
   globalThis.caches = memoryCaches();
   globalThis.fetch = fetch;
   globalThis.self = {
@@ -76,11 +75,11 @@ async function worker(fetch) {
     addEventListener: (type, fn) => { listeners[type] = fn; },
     clients: { claim: async () => {} },
     skipWaiting() {},
-    registration: { update: async () => { updates.push(Date.now()); }, active: null, waiting: null },
+    registration: { update: async () => {}, active: null, waiting: null },
   };
   await import(`${new URL('sw.js', siteUrl).href}?check-${++instance}`);
   Object.assign(IDBObjectStore.prototype, { put, add });
-  return { listeners, updates, caches: globalThis.caches };
+  return { listeners, caches: globalThis.caches };
 }
 const install = (sw) => new Promise((resolve, reject) => {
   sw.listeners.install({ waitUntil: (p) => p.then(resolve, reject) });
@@ -112,23 +111,42 @@ test('a file the server no longer has fails the install whole', async () => {
   await assert.rejects(install(sw), /index\.html: 404/);
 });
 
-test('once installed, the cache never takes another copy: the browser is asked to look for the new worker', async () => {
+test('once installed, a file of the release is answered from the cache, the server not asked, whatever the request\'s cache mode', async () => {
+  const sw = await worker(server().fetch);
+  await install(sw);
+  const key = `${ORIGIN}/app/js/format.js`;
+  const before = await (await (await shellCache(sw)).match(key)).text();
+  // The next release is on the server: this worker's pages are still answered with this one, whole.
+  const next = server({ 'app/js/format.js': '// the next release\n' });
+  globalThis.fetch = next.fetch;
+  for (const mode of ['default', 'no-cache', 'reload', 'no-store']) {
+    const waited = [];
+    let answer;
+    sw.listeners.fetch({ request: { method: 'GET', url: key, mode: 'cors', cache: mode }, respondWith: (p) => { answer = p; }, waitUntil: (p) => waited.push(p) });
+    assert.equal(await (await answer).text(), before, `${mode}: this release's copy`);
+    await Promise.all(waited);
+  }
+  assert.deepEqual(next.asked, [], 'the server was not asked');
+});
+
+test('an update copies what the caches before it hold as this release has it, and fetches only the rest', async () => {
+  // The release before: every file of this one, but for a module that changed since; the idle tier's
+  // files held too.
+  const before = await worker(server().fetch);
+  await install(before);
+  const older = await shellCache(before);
+  for (const u of SHELL.filter((f) => !BOOT.includes(f))) await older.put(`${ORIGIN}/${u}`, new Response(readFileSync(join(site, u))));
+  await older.put(`${ORIGIN}/app/js/format.js`, new Response('// the release before\n'));
+  // This worker in the same browser, the cache before it under another name.
   const srv = server();
   const sw = await worker(srv.fetch);
+  const name = (await before.caches.keys())[0];
+  sw.caches.stores.set(name.replace(/-shell-v\d+-/, '-shell-v1-'), before.caches.stores.get(name));
   await install(sw);
-  const cache = await shellCache(sw);
-  const key = `${ORIGIN}/app/js/format.js`;
-  const before = await (await cache.match(key)).text();
-  // The next release is on the server: a page's request is answered from the cache, and the check
-  // that follows finds another copy.
-  globalThis.fetch = server({ 'app/js/format.js': '// the next release\n' }).fetch;
-  const waited = [];
-  let answer;
-  sw.listeners.fetch({ request: { method: 'GET', url: key, mode: 'cors', cache: 'default' }, respondWith: (p) => { answer = p; }, waitUntil: (p) => waited.push(p) });
-  assert.equal(await (await answer).text(), before, 'answered with this release\'s copy');
-  await Promise.all(waited);
-  assert.equal(await (await cache.match(key)).text(), before, 'the cache keeps it');
-  assert.equal(sw.updates.length, 1, 'the browser was asked to look for the worker');
+  assert.deepEqual(srv.asked.map((a) => new URL(a.url).pathname), ['/app/js/format.js'], 'only the changed file is fetched');
+  const cache = await sw.caches.open(name);
+  assert.equal(cache.m.size, SHELL.length, 'every file, the idle tier\'s too, copied');
+  assert.equal(await (await cache.match(`${ORIGIN}/app/js/format.js`)).text(), readFileSync(join(site, 'app/js/format.js'), 'utf8'), 'the changed file as this release has it');
 });
 
 test('a file fetched on first use is kept only as this release has it', async () => {
