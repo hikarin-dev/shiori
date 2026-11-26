@@ -199,7 +199,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 .tb-gallery.local { color: var(--warning); }
 .tb-title   { font-size: 13px; color: var(--muted-foreground); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
 .tb-spacer  { flex: 1; min-width: 0px; }
-#pageCounter, [data-ref="pageCounter"] { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; min-width: 52px; text-align: right; }
+#pageCounter { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; min-width: 52px; text-align: right; }
 
 /* All reader-nav controls are the same 30px square so the bar reads as one set. */
 .tb-btn {
