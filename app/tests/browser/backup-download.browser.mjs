@@ -130,6 +130,46 @@ test('while a backup runs the page behind it is held: no keys, no focus, no drop
   await page.close();
 });
 
+// The same lock as the one page's notice host draws the operation's window (src/lib/notice-store.ts), on a
+// page the one page draws: the page behind it held while a backup runs, as above.
+test('the one page: while a backup runs the page behind it is held: no keys, no focus, no drops, no leaving unasked', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  await page.evaluate(async () => {
+    const { showOperation } = await import('/app/js/notice.js');
+    window.__heard = 0;
+    document.addEventListener('keydown', () => { window.__heard++; }, true);
+    document.addEventListener('drop', () => { window.__heard++; }, true);
+    window.__op = showOperation({ title: 'Working', stopLabel: 'Cancel' });
+    window.__op.update({ done: 3, total: 10, lines: ['3 of 10', ''] });
+    // Held from the call on: everything already in the body, before the box is drawn.
+    window.__inertAtOnce = [...document.body.children].every((el) => el.inert);
+  });
+  await until(page, () => !!document.querySelector('[data-notice="operation"] [data-notice-stop]'), null, { what: 'the operation\'s window' });
+  const held = await page.evaluate(() => {
+    const box = document.querySelector('[data-notice="operation"]');
+    const inertBehind = window.__inertAtOnce && [...document.body.children].filter((el) => !el.contains(box)).every((el) => el.inert);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() });
+    document.body.dispatchEvent(drop);
+    const leave = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(leave);
+    const bar = box.querySelector('[role=progressbar]');
+    // Focus lost to the page: Tab brings it back to the box's button.
+    document.activeElement?.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    const backInBox = document.activeElement?.textContent === 'Cancel';
+    const out = { inertBehind, heard: window.__heard, dropRefused: drop.defaultPrevented, leaveAsked: leave.defaultPrevented, now: bar?.getAttribute('aria-valuenow'), backInBox };
+    window.__op.close();
+    out.released = [...document.body.children].every((el) => !el.inert);
+    return out;
+  });
+  assert.deepEqual(held, { inertBehind: true, heard: 0, dropRefused: true, leaveAsked: true, now: '30', backInBox: true, released: true });
+  assert.deepEqual(page.problems, []);
+  await page.close();
+});
+
 test('a cut-short download dropped on the library is recognised by its content, checked, and restored', { skip: !chromePath() }, async () => {
   const backup = path.join(dir, fs.readdirSync(dir).find(f => f.endsWith('.shioridb')));
   const page = await openPage(browser, origin);

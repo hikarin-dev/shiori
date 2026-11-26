@@ -4,8 +4,10 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { startServer, chromePath, launch, openPage, until, READER_ROUTE } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
+// The reader as the one page draws it, at its route (until it takes /reader).
+const READER_ROUTE_PATH = '/reader-next';
 const GALLERY = '1790000000401';
 const PAGE_COUNT = 12;
 let server, origin, browser;
@@ -275,36 +277,29 @@ async function leftAfterStop(page, cdp) {
   return { nodes, jsEventListeners, listeners, ...inPage };
 }
 
-// On the reader's own page, its frame drawn again by the test before each start. Where the one page draws
-// the reader (READER_ROUTE) only the route draws frames: reader-route.browser.mjs holds the same there by
-// entering and leaving the route.
-test('started, used and stopped five times, the reader leaves nothing behind, and nothing of it runs after a stop', { skip: !chromePath() ? true : READER_ROUTE && 'on the route: reader-route.browser.mjs' }, async (t) => {
-  const page = await openPage(browser, origin, { reader: 'keep' });
+// Started by the one page's route and stopped by leaving it, five times in one document: from Tasks (a page
+// that keeps no pictures of its own) into the reader by a change of route, the reader used, and Back. Each
+// start has a frame of its own, drawn by the route (until 2026-11-26 the reader's own page, its frame drawn
+// again by the test before each start, as the route would).
+test('started, used and stopped five times, the reader leaves nothing behind, and nothing of it runs after a stop', { skip: !chromePath() }, async (t) => {
+  const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
   await page.evaluateOnNewDocument(() => { localStorage.setItem('shiori-reader-nav', 'top'); localStorage.setItem('shiori-reader-pin', '1'); localStorage.setItem('shiori:readerMode', '"strip"'); });
   await page.evaluateOnNewDocument(instrument);
   const cdp = await page.createCDPSession();
-  await page.goto(`${origin}/reader?g=${GALLERY}&page=1`, { waitUntil: 'load' });
-  // The frame as the page first had it, drawn again before each later start (as a route would).
-  const frame = await page.evaluate(async () => {
-    const doc = new DOMParser().parseFromString(await (await fetch('/app/reader.html')).text(), 'text/html');
-    doc.querySelectorAll('body > script').forEach((s) => s.remove());
-    return doc.body.innerHTML;
-  });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  await page.evaluate(() => { window.__stayed = true; });
   const rows = [];
   for (let c = 1; c <= 5; c++) {
+    // In by a link, as the app's own are followed (a change of route).
+    await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); a.remove(); }, `${READER_ROUTE_PATH}?g=${GALLERY}&page=1`);
     await use(page, c);
-    await page.evaluate(() => { globalThis.__reader.stop(); globalThis.__reader = null; });
+    await page.goBack();
+    await until(page, () => !document.querySelector('.reader-frame') && !!document.getElementById('tkList'), null, { what: 'Tasks again' });
     rows.push(await leftAfterStop(page, cdp));
-    if (c === 5) break;
-    await page.evaluate(async (markup) => {
-      // The frame drawn again in its place; what others keep in the body (a tooltip's tip, the page's script) stays.
-      { const t = { content: document.createRange().createContextualFragment(markup) }; const ids = new Set([...t.content.children].map((e) => e.id).filter(Boolean)); for (const e of [...document.body.childNodes]) if (e.nodeType !== 1 || ids.has(e.id)) e.remove(); document.body.prepend(t.content); }
-      history.replaceState(null, '', `${location.pathname}?g=${new URLSearchParams(location.search).get('g')}&page=1`);
-      (await import('/app/js/i18n.js')).applyTranslations(document.body);
-      globalThis.__reader = globalThis.__startReader();
-    }, frame);
   }
+  assert.equal(await page.evaluate(() => window.__stayed), true, 'one document throughout');
   t.diagnostic(JSON.stringify(rows.map(({ nodes, jsEventListeners, listeners, inDocument }) => ({ nodes, inDocument, jsEventListeners, ...listeners }))));
   const [first] = rows, last = rows.at(-1);
   for (const row of rows) {
