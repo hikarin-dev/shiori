@@ -11,7 +11,10 @@
 //   installed  its own files (its chunk, and what only it imports) are among those the service worker
 //           installs, so it opens with no network; where not, they are fetched when it is first shown
 //           and kept from then on, as any file the page asks for is (build/start.mjs, notInstalled)
-export type Route = { page: string; app: boolean; header: boolean; installed: boolean };
+//   sheets  stylesheets of the app's served files it draws with (paths from the site's root), linked
+//           before it is first drawn and kept: asked for with its chunk, on a hard load (start.js) and
+//           on a change of route (app.tsx)
+export type Route = { page: string; app: boolean; header: boolean; installed: boolean; sheets?: readonly string[] };
 
 export const ROUTES: Readonly<Record<string, Route>> = {
   // The library, at the site's root and at /library alike (1.3's page answered both).

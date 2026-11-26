@@ -2,7 +2,7 @@ import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { ROOT, servedModules, contentSecurityPolicy, firstPaint, siteFiles, devPages } from './build/plugins.ts';
+import { ROOT, servedModules, contentSecurityPolicy, firstPaint, siteFiles, devPages, routeDependencies } from './build/plugins.ts';
 
 // What every page runs as it starts is one chunk ('start'). Left to itself the bundler splits it by
 // which of the lazily loaded parts also use each piece, so a page's start fetched more files the more
@@ -57,6 +57,8 @@ export default defineConfig({
     // (The start's one chunk is over the 500 kB the bundler warns of, by design: it was that much in
     // several files before.)
     chunkSizeWarningLimit: 1024,
+    // A route's chunk comes with the app's served modules it runs (build/plugins.ts).
+    modulePreload: { resolveDependencies: routeDependencies },
     rolldownOptions: { output: { codeSplitting: { groups: [
       { debugName: 'entry', priority: 2, name: (id, ctx) => (startChunk(id, (m) => ctx.getModuleInfo(m)) === 'entry' ? 'entry' : null) },
       { debugName: 'start', priority: 1, name: (id, ctx) => (startChunk(id, (m) => ctx.getModuleInfo(m)) === 'start' ? 'start' : null) },

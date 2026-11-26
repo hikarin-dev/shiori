@@ -8,7 +8,8 @@
 //            draws (the start-up, app/js/boot-core.js, and the app's chunk), and everything those
 //            import, chunks and served modules alike, and the modules the start-up itself imports at
 //            once where a browser keeps the library (START_ALSO)
-//   routes   for each route, its chunk and what that imports, less what `start` has
+//   routes   for each route, its chunk and what that imports, and the served stylesheets it draws with
+//            (`sheets` in the route table), less what `start` has
 // The entry itself is named apart: start.js adds it in every case, the list only when the page draws
 // (a page about to hand the visitor on to another file fetches no more than it needs to decide).
 import fs from 'node:fs';
@@ -54,7 +55,7 @@ function closure(files, chunks, root) {
 // route table (src/routes.ts): each route's header and its form, what its shiori-app meta says (the
 // app's own pages: the page's name), and its preload list. In the dev server, with no bundle: the map,
 // the header and the meta alone.
-/** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, app: boolean, header: boolean }>, root?: string }} options */
+/** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, app: boolean, header: boolean, sheets?: readonly string[] }>, root?: string }} options */
 export function startData({ bundle = null, routes, root = ROOT }) {
   const data = { appPage: APP_PAGE, pages: PAGES, entry: null, start: [], routes: {} };
   for (const [segment, route] of Object.entries(routes)) {
@@ -73,16 +74,22 @@ export function startData({ bundle = null, routes, root = ROOT }) {
   const started = new Set([entry.fileName, ...data.start]);
 
   for (const [segment, route] of Object.entries(routes)) {
-    const module = path.join(root, 'src', 'routes', `${route.page}.tsx`).split(path.sep).join('/').toLowerCase();
-    const chunk = Object.values(chunks).find((c) => c.facadeModuleId?.toLowerCase() === module);
-    if (!chunk) throw new Error(`start.mjs: no chunk draws /${segment} (src/routes/${route.page}.tsx)`);
+    const chunk = routeChunk(chunks, segment, route, root);
     // Its stylesheets: its own chunk's and those of the chunks it shares with other routes (a component
-    // two routes draw, its stylesheet with it).
+    // two routes draw, its stylesheet with it), and the served ones it names.
     const files = closure([chunk.fileName], chunks, root);
     const styles = [...new Set(files.flatMap((file) => [...(chunks[file]?.viteMetadata?.importedCss ?? [])]))];
-    data.routes[segment].preload = [...files, ...styles].filter((file) => !started.has(file));
+    data.routes[segment].preload = [...files, ...styles, ...(route.sheets ?? [])].filter((file) => !started.has(file));
   }
   return data;
+}
+
+// The chunk that draws a route (src/routes/<page>.tsx), from the bundle's chunks by file name.
+export function routeChunk(chunks, segment, route, root = ROOT) {
+  const module = path.join(root, 'src', 'routes', `${route.page}.tsx`).split(path.sep).join('/').toLowerCase();
+  const chunk = Object.values(chunks).find((c) => c.facadeModuleId?.toLowerCase() === module);
+  if (!chunk) throw new Error(`start.mjs: no chunk draws /${segment} (src/routes/${route.page}.tsx)`);
+  return chunk;
 }
 
 // The bundle's files that only routes the worker doesn't install draw with (`installed` false in the

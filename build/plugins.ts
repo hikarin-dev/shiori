@@ -12,7 +12,7 @@ import type { Plugin } from 'vite';
 import { APP_PAGE, movedTo, pageFile } from '../app/js/pages.js';
 import { ROUTES } from '../src/routes.ts';
 import { writeShell } from './shell.mjs';
-import { notInstalled, startData, startScript } from './start.mjs';
+import { notInstalled, routeChunk, startData, startScript } from './start.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -71,7 +71,12 @@ export function firstPaint(): Plugin {
     name: 'shiori:first-paint',
     apply: 'build',
     generateBundle(_, bundle) {
-      this.emitFile({ type: 'asset', fileName: 'start.js', source: startScript(startData({ bundle, routes: ROUTES })) });
+      const data = startData({ bundle, routes: ROUTES });
+      this.emitFile({ type: 'asset', fileName: 'start.js', source: startScript(data) });
+      // The same lists for a change of route (routeDependencies, below).
+      const chunks = Object.fromEntries(Object.values(bundle).filter((c) => c.type === 'chunk').map((c) => [c.fileName, c]));
+      servedWith = new Map(Object.entries(ROUTES).map(([segment, route]) => [routeChunk(chunks, segment, route).fileName,
+        (data.routes as Record<string, { preload: string[] }>)[segment].preload.filter((file) => file.endsWith('.js') && !file.startsWith('assets/'))]));
     },
     transformIndexHtml: {
       order: 'post',
@@ -88,6 +93,18 @@ export function firstPaint(): Plugin {
       },
     },
   };
+}
+
+// A change of route asks for the route's chunk as start.js asks for it on a hard load of its address:
+// with every module of the app's served files it runs (those of app/js it imports, and theirs), in
+// one wave, where the browser would find them one import after another. The bundler names the bundle's
+// own files a dynamic import needs; this adds those (vite.config.ts, build.modulePreload). Its served
+// stylesheets app.tsx links. (The bundler asks once the bundle is written, after firstPaint has read it.)
+let servedWith: Map<string, string[]> | null = null;
+export function routeDependencies(filename: string, deps: string[]) {
+  if (!servedWith) throw new Error("the build asked for the routes' preload lists before the bundle was read");
+  const served = servedWith.get(filename) ?? [];
+  return [...deps, ...served.filter((file) => !deps.includes(file))];
 }
 
 // What the built site carries besides the bundle: the same files, at the same places, each with the

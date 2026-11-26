@@ -15,13 +15,36 @@ import NotFound from './routes/not-found';
 // Each page's module (src/routes/<page>.tsx), a chunk of its own.
 const modules = import.meta.glob<{ default: ComponentType }>(['./routes/*.tsx', '!./routes/not-found.tsx']);
 
+// A route's served stylesheets (its `sheets`, from the site's root), linked in the head once, with its
+// chunk asked for at the same time, and there before it draws (on a hard load start.js has asked for
+// them already). They stay in the document once linked, as a route's own stylesheet does.
+function linkSheets(sheets: readonly string[] = []) {
+  return Promise.all(sheets.map((path) => {
+    const href = new URL(siteRoot + path, location.href).href;
+    let link = [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].find((l) => l.href === href);
+    if (link?.sheet) return undefined;
+    if (!link) {
+      link = Object.assign(document.createElement('link'), { rel: 'stylesheet', href });
+      document.head.append(link);
+    }
+    const asked = link;
+    return new Promise<void>((loaded, failed) => {
+      asked.addEventListener('load', () => loaded(), { once: true });
+      asked.addEventListener('error', () => failed(new Error(`${path} did not load`)), { once: true });
+    });
+  }));
+}
+
 const router = createBrowserRouter([{
   element: <Frame />,
   children: [
     ...Object.entries(ROUTES).map(([segment, route]) => ({
       path: `/${segment}`,
       handle: route,
-      lazy: async () => ({ Component: (await modules[`./routes/${route.page}.tsx`]()).default }),
+      lazy: async () => {
+        const [module] = await Promise.all([modules[`./routes/${route.page}.tsx`](), linkSheets(route.sheets)]);
+        return { Component: module.default };
+      },
     })),
     { path: '*', element: <NotFound /> },
   ],
