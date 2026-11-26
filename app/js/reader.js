@@ -95,15 +95,15 @@ function _putReaderDocumentBack(at) {
 // The site's root, from this file's own address (app/js/reader.js): the reader's links to the app's
 // other pages are made from it, so they are right whatever base the page drawing the reader has.
 const SITE_ROOT = new URL('../../', import.meta.url);
-// Leaving for another page of the app: `path` from the site's root ('' the library, 'overview?g=…').
-// A page that draws the reader inside itself gives startReader its own way (a change of route).
-const leaveByLoad = (path) => { location.href = new URL(path, SITE_ROOT).href; };
 
 // ── Start and stop (made by plans/frontend-react-probes/8a/transform.mjs) ──
 // Everything below runs once per start. What would outlive the reader is made through the instance:
 // listeners on the window and the document take its signal, and the globals that make timers,
 // frames, observers, workers and object URLs are shadowed here so each is known and released by stop.
-export function startReader({ go = leaveByLoad } = {}) {
+// `go(path)`: the way to another page of the app (`path` from the site's root: '' the library,
+// 'overview?g=…'), the page drawing the reader's own (the one page's: a change of route).
+export function startReader({ go }) {
+if (typeof go !== 'function') throw new TypeError('startReader needs go(path), the way to the other pages of the app');
 const _rsWin = globalThis;
 const _rsAbort = new AbortController();
 const _rsSignal = _rsAbort.signal;

@@ -1,8 +1,8 @@
-// page-nav.js — the header's page name is a quiet menu of the app's pages: pick one to go there. Each
-// page's header holds a <select id="pageNav" data-page="…"> with its own page as the one option, so
-// the name paints at once; this adds the others. A gallery's overview is offered where there is a
-// gallery (its overview, the reader), the reader only in the reader. Started by the reader (the one
-// page left with a file of its own; the one page draws its own menu), and ended by its stop.
+// page-nav.js — the reader's top bar's page name is a quiet menu of the app's pages: pick one to go
+// there. The bar holds a <select id="pageNav" data-page="reader"> with the reader as its one option, so
+// the name paints at once; this adds the others: a gallery's overview where there is a gallery, the
+// library, Settings and Tasks. Started by the reader and ended by its stop (the one page's own header
+// draws its own menu, src/components/ui/page-menu.tsx).
 
 import { t } from './i18n.js';
 
@@ -15,13 +15,9 @@ const PAGES = [
   { id: 'settings', label: 'nav.settings', path: () => 'settings' },
   { id: 'tasks', label: 'tasks.title', path: () => 'tasks' },
 ];
-// The site's root, from this file's own address (app/js/page-nav.js), whatever base the page has.
-const SITE_ROOT = new URL('../../', import.meta.url);
-const load = (path) => { location.href = new URL(path, SITE_ROOT).href; };
-
-// `go(path)` goes to the page picked (a page load by default; a page that draws the reader inside itself
-// gives its own way). Returns what ends it again (its listeners), for a page taken away without unloading.
-export function initPageNav(go = load) {
+// `go(path)` goes to the page picked (`path` from the site's root; the reader's own way out, a change of
+// route). Returns what ends it again (its listeners), for a page taken away without unloading.
+export function initPageNav(go) {
   const select = document.getElementById('pageNav');
   if (!select) return () => {};
   const started = new AbortController();
@@ -38,7 +34,5 @@ export function initPageNav(go = load) {
     const page = PAGES.find(p => p.id === select.value);
     if (page && page.id !== current) go(page.path());
   }, { signal });
-  // Back here from the page picked (the back/forward cache keeps the pick): this page again.
-  window.addEventListener('pageshow', () => { select.value = current; }, { signal });
   return () => started.abort();
 }

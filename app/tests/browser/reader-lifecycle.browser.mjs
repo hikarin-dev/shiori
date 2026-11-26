@@ -143,7 +143,7 @@ test('stop puts back what the reader wrote on <html> and <body>, by its own name
   assert.equal('style' in after1.body, false, 'no style attribute left on <body>');
 
   // Started again on the same frame, with the side controls, then stopped: back to the second start's.
-  await page.evaluate(() => { localStorage.setItem('shiori-reader-nav', 'side'); globalThis.__reader = globalThis.__startReader(); });
+  await page.evaluate(() => { localStorage.setItem('shiori-reader-nav', 'side'); globalThis.__reader = globalThis.__startReader(globalThis.__startOptions); });
   await until(page, () => document.body.classList.contains('reader-side-nav') && document.querySelector('#stripView img, #mainImg')?.naturalWidth > 0, null, { what: 'the second start drawn' });
   await page.keyboard.press('2');
   await new Promise((r) => setTimeout(r, 300));

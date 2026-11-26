@@ -36,7 +36,8 @@ export function launch() {
 // globalThis.__reader.stop()). READER_START=strict in the environment does the same for every page a
 // test opens: the reader's own tests run on an engine started a second time.
 //   keep    started once, as the route does; <html>'s and <body>'s attributes and the title just before
-//           the start kept as globalThis.__beforeStart.
+//           the start kept as globalThis.__beforeStart, the route's options (its go) as
+//           globalThis.__startOptions.
 //   strict  started, stopped and started again in one task, on the same frame: React's strict mode.
 // (Started again on a frame drawn anew is the route's own: leaving and coming back.)
 const READER_ENTRY_TAIL = {
@@ -46,6 +47,7 @@ globalThis.__startReader = __shioriStart;
 startReader = function (options) {
   const attrs = (el) => Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]));
   globalThis.__beforeStart = { html: attrs(document.documentElement), body: attrs(document.body), title: document.title };
+  globalThis.__startOptions = options;
   return (globalThis.__reader = __shioriStart(options));
 };
 `,
