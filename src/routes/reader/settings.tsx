@@ -560,6 +560,9 @@ export default function ReaderSettings() {
           // what has the focus uses them; the Dialog's box would keep them all.
           onKeyDown={(e) => { if (!pickers.isOpen() && !listOpen() && !controlKey(e.target as Element, e.nativeEvent)) e.preventBaseUIHandler(); }}
           className={cn('pointer-events-none overflow-visible rounded-none border-0 bg-transparent shadow-none',
+            // On a phone, a sheet at the window's foot (the reader's own form for it, where a thumb reaches;
+            // the Dialog's phone form is centred): as tall as its tallest tab, the tab shown reaching its foot.
+            'max-[520.02px]:self-end',
             // For the place buttons: how far the window's right edge is from the box's left edge (the box
             // centred in the layer's room, the window less a scrollbar and the layer's padding), and the
             // tabs' side padding. Viewport units: container units on the layer would restyle all of it

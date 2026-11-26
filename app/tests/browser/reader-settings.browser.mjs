@@ -243,3 +243,29 @@ test('leaving the reader with reader settings open, a picker open, or after both
     assert.deepEqual(left, { dialog: 0, cells: 0 }, `left ${how}`);
   }
 });
+
+// On a phone the reader's settings are a sheet at the window's foot (plans/reader-spec.md), where a
+// thumb reaches them: as tall as their tallest tab, so their top stays where it is from tab to tab and
+// every tab reaches the sheet's foot. (Made the one page's Dialog, they stood in the window's middle,
+// 85px from its foot at 390×844: the Dialog's own phone form.)
+test('on a phone reader settings are a sheet at the window\'s foot: its top where it was from tab to tab, every tab reaching its foot', { skip: !chromePath() }, async (t) => {
+  const page = await reader(t);
+  await page.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
+  await sleep(400);
+  await page.tap('#readerSettingsBtn').catch(() => page.evaluate(() => document.getElementById('readerSettingsBtn').click()));
+  await until(page, (sel) => !!document.querySelector(sel), S.open, { what: 'reader settings' });
+  const seen = {};
+  for (const tab of ['reading', 'pages', 'display']) {
+    await page.evaluate((sel) => document.querySelector(sel).click(), S.tab(tab));
+    await until(page, (sel) => document.querySelector(sel)?.getAttribute('aria-selected') === 'true', S.tab(tab), { what: `the ${tab} tab` });
+    await sleep(150);
+    seen[tab] = await page.evaluate((top, panel) => {
+      const a = document.querySelector(top).getBoundingClientRect(), b = document.querySelector(panel).getBoundingClientRect();
+      return { top: Math.round(a.top), left: Math.round(a.left), right: Math.round(innerWidth - a.right), foot: Math.round(innerHeight - b.bottom), joined: Math.abs(b.top - a.bottom) < 1 };
+    }, S.top, S.panel(tab));
+  }
+  const { reading } = seen;
+  assert.deepEqual([reading.left, reading.right, reading.foot, reading.joined], [8, 8, 8, true], 'the sheet 8px from the window\'s sides and its foot');
+  assert.ok(reading.top > 100, `its top ${reading.top}px down: not the whole window`);
+  assert.deepEqual([seen.pages, seen.display], [reading, reading], 'the same box at every tab');
+});

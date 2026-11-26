@@ -30,7 +30,23 @@ const loadProperties = () => import('./properties');
 const loadFeedback = () => import('./feedback');
 const loadSettings = () => import('./settings');
 
+// Reader settings' code is asked for once the reader has been idle a moment, where the other parts'
+// comes with their first use: the gear is pressed in most visits, and fetched on the press its dialog
+// came 98 ms after it (24 once fetched; 1.3's, markup in its page, 27 and 5).
+function useSettingsAhead() {
+  useEffect(() => {
+    const ahead = () => { void loadSettings(); };
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(ahead, { timeout: 5000 });
+      return () => cancelIdleCallback(id);
+    }
+    const id = setTimeout(ahead, 1500);
+    return () => clearTimeout(id);
+  }, []);
+}
+
 export function ReaderParts() {
+  useSettingsAhead();
   const PageMenu = usePart(useSyncExternalStore(menu.subscribe, menu.asked), loadMenu);
   const PageProperties = usePart(useSyncExternalStore(properties.subscribe, properties.asked), loadProperties);
   const Feedback = usePart(useSyncExternalStore(feedback.subscribe, feedback.asked), loadFeedback);
