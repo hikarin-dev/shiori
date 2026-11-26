@@ -125,3 +125,27 @@ test('a row\'s pages opened and closed: as on 1.3\'s page', { skip: !chromePath(
   assert.equal(closed.read.rows[1].expand.expanded, 'false');
   assert.deepEqual(F18(boxDiff(closed.boxes, now.boxes, 1)), []);
 });
+
+// A title is a link while the page is not being edited, and says so under the pointer as 1.3's did: the
+// series' title and a chapter's take the brand's colour while the pointer is on their link, and their own
+// again when it leaves. (1.3's stylesheet: `.ch-title-wrap:has(.ch-title-open:hover) .ch-title-input[readonly]`.
+// Ported as a rule the app's own colour utility outranked, for a class the chapter's title had lost, it
+// coloured neither: found by 9a's search for rules that match nothing.)
+test('the series\' title and a chapter\'s take the brand\'s colour while the pointer is on their link, as 1.3\'s', { skip: !chromePath() }, async () => {
+  await page.setViewport({ width: 1280, height: 900 });
+  await visit(page, origin, NEW, gid(base, 'S'));
+  const TEXT = 'rgb(244, 244, 245)', BRAND = 'rgb(237, 39, 84)';
+  for (const [what, link, title] of [['the series\' title', '.series-title-open', '.series-title-wrap [data-slot="inline-edit"]'], ['a chapter\'s title', '.ch-row:nth-child(2) .ch-title-open', '.ch-row:nth-child(2) .ch-title-wrap [data-slot="inline-edit"]']]) {
+    const colour = () => page.$eval(title, (el) => getComputedStyle(el).color);
+    await page.mouse.move(4, 4);
+    await sleep(200);
+    assert.equal(await colour(), TEXT, `${what} at rest`);
+    const box = await (await page.$(link)).boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await sleep(250);
+    assert.equal(await colour(), BRAND, `${what} with the pointer on its link`);
+    await page.mouse.move(4, 4);
+    await sleep(250);
+    assert.equal(await colour(), TEXT, `${what} once the pointer has left`);
+  }
+});
