@@ -149,6 +149,7 @@ test('before its first paint the frame has what the reader\'s page has before it
       const words = await page.evaluate(async () => (await import('/app/js/i18n.js')).t('rd.chapters'));
       const label = `${how}, ${c.nav}${c.shown ? '' : ', hidden'}`;
       assert.ok(frames.length > 0, `${label}: frames recorded`);
+      t.diagnostic(`${label}: ${frames.length} frames from the frame's first to a page drawn`);
       const expected = { mark: true, side: c.nav === 'side', hidden: !c.shown, place: 'left-center', styled: true,
         topbar: c.nav === 'top', sideNav: c.nav === 'side', zoom: c.shown ? '1' : '0', words, header: false };
       const off = frames.map((f, i) => [i, f]).filter(([, f]) => JSON.stringify(f) !== JSON.stringify(expected));
