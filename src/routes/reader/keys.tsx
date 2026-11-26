@@ -87,7 +87,7 @@ export default function ReaderKeys() {
             <Fragment key={section}>
               <Eyebrow as="h3" data-kb="section" className={i ? 'mt-[12px] mb-[5px]' : 'mb-[5px]'}>{t(section)}</Eyebrow>
               {rows.map(([desc, caps]) => (
-                <div key={desc} data-kb="row" className="flex items-center justify-between gap-[8px] border-0 border-b border-solid border-border py-[5px] text-11 last:border-b-0">
+                <div key={desc} data-kb="row" className="flex items-center justify-between gap-[8px] border-0 border-b border-solid border-border py-[4.5px] text-11 last:border-b-0">
                   <span data-kb="desc" className="text-muted-foreground">{t(desc)}</span>
                   <span className="flex flex-wrap justify-end gap-[4px]">
                     {caps.map((cap) => {

@@ -295,3 +295,20 @@ test('closed, the keys list and reader settings keep nothing of the reader: afte
   const pressed = await nodes();
   assert.ok(pressed - plain < 40, `after the keys list and reader settings ${pressed} nodes (${opened} before a press), after neither ${plain}`);
 });
+
+// The whole list shows in a window 900px tall, as 1.3's did (836px of it): its rows are 30px, 1.3's. (With
+// the dialogs' 20px key caps on 5px above and below, a row was 31 and the box 869 in 868px of room: it
+// scrolled by a pixel.)
+test('the keys list fits a window 900px tall: nothing of it scrolls', { skip: !chromePath() }, async (t) => {
+  const page = await reader(t);
+  await page.setViewport({ width: 1280, height: 900 });
+  await openKeys(page);
+  const seen = await page.evaluate((sel) => {
+    const box = document.querySelector(sel), b = box.getBoundingClientRect();
+    const scrollers = [box, ...box.querySelectorAll('*')].filter((el) => el.scrollHeight > el.clientHeight + 0.5 && /auto|scroll/.test(getComputedStyle(el).overflowY));
+    return { top: b.top, bottom: innerHeight - b.bottom, scrolling: scrollers.length, row: document.querySelector('[data-kb="row"]').getBoundingClientRect().height };
+  }, S.open);
+  assert.equal(seen.scrolling, 0, 'no part of it scrolls');
+  assert.ok(seen.top >= 16 && seen.bottom >= 16, `inside the window: ${seen.top}px above, ${seen.bottom}px under`);
+  assert.equal(seen.row, 30, 'a row 30px, as 1.3\'s');
+});
