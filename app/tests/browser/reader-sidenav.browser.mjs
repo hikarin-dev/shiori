@@ -1208,9 +1208,13 @@ test('the display tab: the navigation bar, the progress bars, and study mode in 
 test('a rail down a side keeps clear of zoom and the thumbnails: they push it up as they come and grow, at once while resized', { skip: !chromePath() }, async t => {
   const page = await reader(t, { place: 'right-center' });
   // The thumbnails at their usual height (earlier tests resize them, and it's saved).
+  // The window at its height first: the reader takes the thumbnails' height as it starts, held to at
+  // least 15% of the window's height, and the one page starts it after the load event (the old order,
+  // a load then the window resized, left a 900px window's 135px in a third of the runs under load).
   await page.evaluate(() => localStorage.removeItem('shiori:readerThumbHeight'));
-  await page.reload({ waitUntil: 'load' });
   await page.setViewport({ width: 1400, height: 560 });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => !!document.getElementById('topbar') && [...document.querySelectorAll('#stripView img[src], #mainImg, .dImg')].some(img => img.naturalWidth > 0));
   await settle();
   const free = await page.$eval('#snRail', r => r.getBoundingClientRect().top);
   await page.keyboard.press('g');   // thumbnails
