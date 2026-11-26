@@ -124,6 +124,7 @@ function _draft({ key, page, study, index, wrap, context, surface }) {
     },
     release() {
       window.removeEventListener('pagehide', draft.release);
+      observer.disconnect();
       urls.splice(0).forEach(u => URL.revokeObjectURL(u));
     },
   };
@@ -142,6 +143,11 @@ function _draft({ key, page, study, index, wrap, context, surface }) {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
   function _changed() { if (drafts.get(key) === draft) _host?.changed(draft); }
+  // The frozen page's bubble layers keep to its own width, whatever the reader's zoom was (the reader's
+  // own measure, --pgscale), wherever it is drawn.
+  const observer = new ResizeObserver(() => draft.page.querySelectorAll('.bubble-layer').forEach(layer =>
+    layer.style.setProperty('--pgscale', String(draft.page.clientWidth / (draft.pageWidth || 1)))));
+  observer.observe(draft.page);
   window.addEventListener('pagehide', draft.release, { once: true });
   (async () => {
     try {

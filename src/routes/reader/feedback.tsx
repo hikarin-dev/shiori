@@ -32,16 +32,12 @@ const FROZEN = cn('relative',
 function Preview({ draft }: { draft: FeedbackDraft }) {
   const t = useT();
   const holder = useRef<HTMLDivElement>(null);
-  // Put in before the box is painted; its bubbles' layers scaled to its width as it is drawn.
+  // Put in before the box is painted (its bubbles' layers keep to its width: the module's observer).
   useLayoutEffect(() => {
     const box = holder.current;
     if (!box) return;
     box.append(draft.page);
-    const scale = () => draft.page.querySelectorAll<HTMLElement>('.bubble-layer').forEach((layer) =>
-      layer.style.setProperty('--pgscale', String(draft.page.clientWidth / (draft.pageWidth || 1))));
-    const observer = new ResizeObserver(scale);
-    observer.observe(draft.page);
-    return () => { observer.disconnect(); draft.page.remove(); };
+    return () => { draft.page.remove(); };
   }, [draft]);
   const selected = (i: number) => i === draft.index || draft.ticked.has(i);
   return (
