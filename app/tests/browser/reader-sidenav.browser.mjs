@@ -195,6 +195,23 @@ test('the chapter pill steps through the chapters and lists them', { skip: !chro
   assert.equal(await page.$eval('body', b => b.classList.contains('sn-pop-open')), false, 'picking a chapter closes the list');
 });
 
+// The owner (2026-11-26): a scrollbar in a rounded box keeps to the straight part of its side, the
+// browser's own bar. The box that scrolls is what ends short of the curve: the 8px under the rows are
+// the panel's (before, the list's own: its bar ran to the panel's border, 7.2px into the 12px curve).
+test('the chapter list\'s rows scroll in a box that ends where the panel\'s corners begin to curve, the rows where they were', { skip: !chromePath() }, async t => {
+  const page = await reader(t, { gallery: SERIES[1], at: 3 });
+  await page.click('#snChLabel');
+  await until(page, () => document.querySelectorAll('#snChList .sn-ch').length === 3, null, { what: 'the list' });
+  const m = await page.evaluate(() => {
+    const panel = document.getElementById('snChapters'), list = document.getElementById('snChList');
+    const p = panel.getBoundingClientRect(), l = list.getBoundingClientRect(), last = list.lastElementChild.getBoundingClientRect();
+    return { end: p.bottom - l.bottom, radius: parseFloat(getComputedStyle(panel).borderBottomRightRadius), last: p.bottom - last.bottom, panelScrolls: getComputedStyle(panel).overflowY };
+  });
+  // At 9px up the 12px curve has left the side by 0.38px, inside the panel's 1px border.
+  assert.deepEqual([m.end, m.last, m.panelScrolls], [9, 9, 'hidden'], `the box that scrolls 9px off the panel's bottom, the last row as far as before: ${JSON.stringify(m)}`);
+  assert.ok(m.radius - Math.sqrt(m.radius ** 2 - (m.radius - m.end) ** 2) < 1, 'its end clear of the curve by more than the border');
+});
+
 test('a single gallery shows its page in the pill, without chapter arrows', { skip: !chromePath() }, async t => {
   const page = await reader(t, { mode: 'single' });
   const pill = () => page.evaluate(() => ({
