@@ -2,11 +2,18 @@
 // reader is drawn inside it, and must leave each other alone both ways. Out: no rule of the reader's
 // sheets matches anything on the one page's routes, whatever it shows (the browser's own rule-usage
 // tracking). In: where the one page's document defaults give a control something else than the
-// reader's own page does, the reader's sheets give it what it has there (with the one page's
-// stylesheets in the reader's page, its controls compute as without them).
+// reader's own page did, the reader's sheets give it what it had there: each control computes as on 1.3's
+// reader page, whose controls are the record (records/reader-styles.browser.mjs.controls.json, measured
+// on 2026-11-26, three runs the same; each look kept once, every control by the look it had). A
+// deliberate change of a control's look edits the record in the same commit.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until, readerSheets } from './harness.mjs';
+import { record } from './records.mjs';
+
+const FILE = basename(fileURLToPath(import.meta.url));
 
 const GALLERY = '1790000000501';
 let server, origin, browser;
@@ -94,14 +101,15 @@ test('no rule of the reader\'s sheets is used on any route of the one page, its 
 });
 
 // In the page: every control of the reader's (its frame, its dialogs and its menu), its computed font,
-// colour, ground, frame, rounding and opacity, by its place.
+// colour, ground, frame, rounding and opacity, by its place in the frame (a part put straight in the body,
+// the page menu or a dialog, by its class).
 function controls() {
   const PROPS = ['font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'font-variant-ligatures',
     'color', 'background-color', 'opacity', 'appearance',
     ...['top', 'right', 'bottom', 'left'].flatMap((s) => [`border-${s}-width`, `border-${s}-style`, `border-${s}-color`]),
     'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'];
   const out = {};
-  const key = (el) => { const parts = []; for (let e = el; e && e !== document.body; e = e.parentElement) parts.unshift(e.id ? `#${e.id}` : `${e.localName}:${[...e.parentElement.children].indexOf(e)}`); return parts.join('>'); };
+  const key = (el) => { const parts = []; for (let e = el; e && e !== document.body && !e.classList.contains('reader-frame'); e = e.parentElement) parts.unshift(e.id ? `#${e.id}` : e.parentElement === document.body ? `${e.localName}.${e.classList[0]}` : `${e.localName}:${[...e.parentElement.children].indexOf(e)}`); return parts.join('>'); };
   for (const el of document.body.querySelectorAll('button, input, select, textarea, option')) {
     if (el.closest('.notice-overlay, .notice-toast, .shiori-tip')) continue;
     const s = getComputedStyle(el);
@@ -110,10 +118,10 @@ function controls() {
   return out;
 }
 
-test('the one page\'s document defaults reach no control of the reader\'s: with its stylesheets in the reader\'s page, each computes as without them', async (t) => {
+test('the one page\'s document defaults reach no control of the reader\'s: each computes as on 1.3\'s reader page', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const look = async (styles, nav) => {
-    const page = await openPage(browser, origin, { styles });
+  const look = async (nav) => {
+    const page = await openPage(browser, origin);
     t.after(() => page.close());
     await page.evaluateOnNewDocument((nav) => {
       localStorage.setItem('shiori-reader-nav', nav);
@@ -147,10 +155,12 @@ test('the one page\'s document defaults reach no control of the reader\'s: with 
     assert.deepEqual(page.problems, []);
     return seen;
   };
+  const { looks, controls: kept } = record(FILE, 'controls');
   for (const nav of ['top', 'side']) {
-    const own = await look(undefined, nav);
-    const added = await look('added', nav);
-    assert.ok(Object.keys(own.display).length > 30, 'the controls are found');
-    for (const state of Object.keys(own)) assert.deepEqual(added[state], own[state], `${nav} navigation, ${state}`);
+    const seen = await look(nav);
+    const was = Object.fromEntries(Object.entries(kept[nav]).map(([state, all]) => [state, Object.fromEntries(Object.entries(all).map(([key, n]) => [key, looks[n]]))]));
+    assert.ok(Object.keys(was.display).length > 30, 'the controls are found');
+    assert.deepEqual(Object.keys(seen), Object.keys(was));
+    for (const state of Object.keys(was)) assert.deepEqual(seen[state], was[state], `${nav} navigation, ${state}`);
   }
 });

@@ -5,7 +5,12 @@
 // was; another gallery is another frame; and entering and leaving it leaves nothing behind.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { record as kept } from './records.mjs';
+
+const FILE = basename(fileURLToPath(import.meta.url));
 
 const SERIES = ['1790000000811', '1790000000812', '1790000000813'];   // three chapters of 6 pages
 const SINGLE = '1790000000821';   // 10 pages
@@ -69,27 +74,32 @@ async function open(t, path, settings = settingsFor()) {
   return page;
 }
 
+// The reader's page's markup as 1.3's page had it (app/reader.html's body, measured on 2026-11-26, three
+// runs the same): every element with an id, in its order, and the top-level parts. A deliberate change of
+// the frame (a dialog taken out of it as a component of the one page's) edits the record in the same
+// commit (records.mjs).
 test('the route\'s frame is the reader\'s page\'s markup, element for element, and nothing of the one page\'s stands around it', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await open(t, `/reader-next?g=${SINGLE}&page=1`);
   await readerDrawn(page);
-  const seen = await page.evaluate(async () => {
-    const doc = new DOMParser().parseFromString(await (await fetch('/app/reader.html')).text(), 'text/html');
+  const own = kept(FILE, 'frame');
+  const seen = await page.evaluate((own) => {
     const ids = (root) => [...root.querySelectorAll('[id]')].map((el) => `${el.localName}#${el.id}`);
     const frame = document.querySelector('#root > .reader-frame');
+    const ownIds = new Set(own.map((id) => id.split('#')[1]));
     return {
-      own: ids(doc.body), drawn: ids(frame).filter((id) => doc.getElementById(id.split('#')[1])),
-      // Its top-level parts in the page's order, and the attributes of the elements the engine leaves as
-      // they were (their classes and data-* aside).
-      parts: [...frame.children].map((el) => el.id), ownParts: [...doc.body.children].filter((el) => el.localName !== 'script').map((el) => el.id),
+      // What the engine makes inside the frame with ids of its own (strip rows, thumbnails…) aside.
+      drawn: ids(frame).filter((id) => ownIds.has(id.split('#')[1])),
+      // Its top-level parts in the page's order.
+      parts: [...frame.children].map((el) => el.id),
       header: !!document.querySelector('header.app-header'), meta: document.querySelector('meta[name="shiori-app"]'),
       mark: document.documentElement.hasAttribute('data-reader'), frameMark: document.documentElement.dataset.frame ?? null,
       title: document.title, logo: frame.querySelector('.brand-icon img').naturalWidth, home: frame.querySelector('#snHome').href,
     };
-  });
-  assert.ok(seen.own.length > 100, `the page's elements with ids (${seen.own.length})`);
-  assert.deepEqual(seen.drawn, seen.own, 'every element of the page, in its order');
-  assert.deepEqual(seen.parts, seen.ownParts);
+  }, own.elements);
+  assert.ok(own.elements.length > 100, `the page's elements with ids (${own.elements.length})`);
+  assert.deepEqual(seen.drawn, own.elements, 'every element of the page, in its order');
+  assert.deepEqual(seen.parts, own.parts);
   assert.deepEqual({ header: seen.header, meta: seen.meta, mark: seen.mark, frameMark: seen.frameMark },
     { header: false, meta: null, mark: true, frameMark: null }, 'no common header, no shiori-app meta (an interim address), the reader\'s mark');
   assert.match(seen.title, /^Shiori — #/);
