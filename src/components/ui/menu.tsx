@@ -19,11 +19,13 @@
 //
 // Placed as Popover places its panel (popover.tsx): fixed to the window, 8px inside it; under its
 // button (6px for a context-menu style list opened by a button, 4px for a folder's), or at the
-// pointer, slid back inside the window where it would leave it. §5.3 F30: one layer (900; 9000, 900 and 430 before); the checklist takes the menu's
+// pointer, slid back inside the window where it would leave it; or, opened from code at a point
+// (`point`: the reader's page menu, whose right-click the reader's own script takes), placed as a
+// right-click's is. A menu opened from code (its `open` given) closes on a scroll or a resize too. §5.3 F30: one layer (900; 9000, 900 and 430 before); the checklist takes the menu's
 // frame (the surface, the plain frame, radius 8; 1.3: the subtle ground, the strong frame, radius 6),
 // keeping its own 4px 0 padding (a candidate: the menu's 5px would move its options 5px in). F31:
 // one floating shadow (the checklist's 0 10px 24px .35). F32: a key cap's text in the text colour.
-import { useEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ComponentProps, type ReactNode } from 'react';
 import { Menu as MenuPrimitive } from '@base-ui/react/menu';
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu';
 import { cva } from 'class-variance-authority';
@@ -46,27 +48,30 @@ const popup = cva(cn(FLOATING, 'border-border shadow-popover'), {
 // Closes the menu when the page scrolls or the window is resized, as 1.3's menus did (Base UI's
 // would follow what opened it). Only from the frame after it opened: a scroll's event comes at the
 // next frame, so a scroll made just before (the page brought the button into view as Tab reached
-// it, or a script's focus did) would otherwise close the menu its press had just opened.
-function useCloseOnMove() {
+// it, or a script's focus did) would otherwise close the menu its press had just opened. Opened by
+// its button, Base UI says so (onOpenChange); opened from code, its `open` does.
+function useCloseOnMove(open?: boolean) {
   const actions = useRef<MenuPrimitive.Root.Actions | null>(null);
-  const open = useRef(false);
+  const isOpen = useRef(false);
   const armed = useRef(0);
   useEffect(() => {
-    const close = () => { if (open.current && armed.current === -1) actions.current?.close(); };
+    const close = () => { if (isOpen.current && armed.current === -1) actions.current?.close(); };
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
     return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); cancelAnimationFrame(armed.current); };
   }, []);
   const track = (o: boolean) => {
-    open.current = o;
+    if (o === isOpen.current) return;
+    isOpen.current = o;
     cancelAnimationFrame(armed.current);
     armed.current = o ? requestAnimationFrame(() => { armed.current = -1; }) : 0;
   };
+  useEffect(() => { if (open !== undefined) track(open); });
   return { actions, track };
 }
 
 function Menu({ onOpenChange, ...props }: MenuPrimitive.Root.Props) {
-  const { actions, track } = useCloseOnMove();
+  const { actions, track } = useCloseOnMove(props.open);
   return <MenuPrimitive.Root modal={false} actionsRef={actions} onOpenChange={(o, d) => { track(o); onOpenChange?.(o, d); }} {...props} />;
 }
 
@@ -76,7 +81,7 @@ function MenuTrigger(props: MenuPrimitive.Trigger.Props) {
 
 // A right-click (or a long press) on its child opens it at the pointer.
 function ContextMenu({ onOpenChange, ...props }: ContextMenuPrimitive.Root.Props) {
-  const { actions, track } = useCloseOnMove();
+  const { actions, track } = useCloseOnMove(props.open);
   // (Its modal mode, which the context menu's types leave out, would hide the page's scrollbar.)
   const nonModal = { modal: false } as object;
   return <ContextMenuPrimitive.Root actionsRef={actions} onOpenChange={(o, d) => { track(o); onOpenChange?.(o, d); }} {...nonModal} {...props} />;
@@ -95,6 +100,8 @@ type ContentProps = Omit<MenuPrimitive.Popup.Props, 'className'> & {
   className?: string;
   // Opened by a right-click: at the pointer.
   context?: boolean;
+  // Opened from code at a point (in the window's coordinates), placed as a right-click's menu is.
+  point?: { x: number; y: number };
   // Placed against this element rather than its trigger (a menu the page opens from code: the re-run
   // menu under the translate button that was right-clicked).
   anchor?: MenuPrimitive.Positioner.Props['anchor'];
@@ -104,12 +111,19 @@ type ContentProps = Omit<MenuPrimitive.Popup.Props, 'className'> & {
 // has no room below or to the right, it slides back inside, 8px from the edge, as 1.3's page menu was
 // clamped (it never turns to open upward or leftward from the pointer).
 const AT_POINTER = { sideOffset: 0, alignOffset: 0, collisionAvoidance: { side: 'shift', align: 'shift', fallbackAxisSide: 'none' } } as const;
+// At a point given by code: the same, on a point of no size. (A right-click's menu slides back up over
+// its point because Base UI knows it for one; `sticky` lets this one too.)
+const AT_POINT = { ...AT_POINTER, side: 'bottom', align: 'start', sticky: true } as const;
 
-function MenuContent({ variant = 'context', side = 'bottom', align = 'start', sideOffset = 0, context, anchor, className, ...props }: ContentProps) {
+function MenuContent({ variant = 'context', side = 'bottom', align = 'start', sideOffset = 0, context, point, anchor, className, ...props }: ContentProps) {
   const Positioner = context ? ContextMenuPrimitive.Positioner : MenuPrimitive.Positioner;
+  const x = point?.x, y = point?.y;
+  const atPoint = useMemo(() => (x == null || y == null ? null : { getBoundingClientRect: () => DOMRect.fromRect({ x, y, width: 0, height: 0 }) }), [x, y]);
+  const place = context ? AT_POINTER : atPoint ? AT_POINT : { side, align, sideOffset };
+  const at = anchor ?? atPoint;
   return (
     <MenuPrimitive.Portal>
-      <Positioner {...POSITIONER} {...(context ? AT_POINTER : { side, align, sideOffset })} {...(anchor ? { anchor } : {})} className="z-menu">
+      <Positioner {...POSITIONER} {...place} {...(at ? { anchor: at } : {})} className="z-menu">
         <MenuPrimitive.Popup data-slot="menu" data-variant={variant} className={cn(popup({ variant }), className)} {...props} />
       </Positioner>
     </MenuPrimitive.Portal>

@@ -3,7 +3,8 @@
 // checklist's options), one floating shadow and layer; and working: under its button or at the
 // pointer, the page's scrollbar kept, the keyboard of a menu (arrows, Home, End, a letter, Enter,
 // Escape, focus back to the button; opened from its button reached by Tab, in Chrome and Firefox), closed by a
-// scroll; a right-click's menu slid back inside the window at its edge; a checklist's ticks leave it open. (The
+// scroll; a right-click's menu slid back inside the window at its edge; one opened from code at a point placed
+// as a right-click's and closed by a press outside, a scroll and a resize; a checklist's ticks leave it open. (The
 // pointer is moved to a right-click's place first: puppeteer's click alone is not taken as one there.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -151,6 +152,50 @@ test('a right-click menu at the pointer, and a checklist that stays open', async
   await page.click(`${list} [role="menuitemcheckbox"]:nth-child(2)`);
   assert.deepEqual(await ticks(), ['true', 'true', 'false']);
   assert.ok(await page.$(list), 'still open');
+  assert.deepEqual(page.problems, []);
+});
+
+// Opened from code at a point (the reader's page menu: the reader's script takes the right-click): its
+// top left corner on the point; closed at once by a press outside (a right-click's menu waits 500 ms
+// before a press outside counts, for its button's release), by a scroll and by a resize, which a menu
+// opened by code heard nothing of before (its `open` is not Base UI's word); near the window's bottom it
+// slides back up over the point, 8px from the edge.
+test('a menu opened from code at a point: placed as a right-click\'s, closed by a press outside, a scroll and a resize', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  const menu = '[data-specimen-menu="point"]';
+  const open = async (at) => {
+    at ??= await centreOf(page, '[data-specimen-open="point"]');
+    await page.mouse.click(at.x, at.y);
+    await page.waitForSelector(menu);
+    await frame(page);
+    return at;
+  };
+  const closed = (what) => until(page, (m) => !document.querySelector(m), menu, { what: `the menu closed by ${what}` });
+  const at = await open();
+  const box = await page.$eval(menu, (el) => { const r = el.getBoundingClientRect(); return [r.left, r.top]; });
+  assert.ok(Math.abs(box[0] - at.x) <= 1 && Math.abs(box[1] - at.y) <= 1, `at the point: ${box} vs ${at.x},${at.y}`);
+  await page.mouse.click(at.x, Math.max(at.y - 60, 4));
+  await closed('a press outside');
+  await open();
+  await page.evaluate(() => window.scrollBy(0, -40));
+  await closed('a scroll');
+  await open();
+  await page.setViewport({ width: 1240, height: 900 });
+  await closed('a resize');
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluate(() => {
+    document.querySelector('[data-specimen-open="point"]').scrollIntoView({ block: 'end', behavior: 'instant' });
+    window.scrollBy(0, -2);
+  });
+  const edge = await page.evaluate(() => { const r = document.querySelector('[data-specimen-open="point"]').getBoundingClientRect(); return { x: Math.round(r.left + 6), y: Math.round(Math.min(r.bottom, innerHeight) - 20), h: innerHeight }; });
+  await open(edge);
+  const slid = await page.$eval(menu, (el) => { const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left }; });
+  assert.ok(Math.abs(slid.bottom - (edge.h - 8)) <= 1, `its bottom 8px over the window's: ${JSON.stringify(slid)} in ${edge.h}`);
+  assert.ok(slid.top < edge.y && slid.bottom > edge.y, `over the point, slid up: ${JSON.stringify(slid)} at ${edge.y}`);
+  assert.ok(Math.abs(slid.left - edge.x) <= 1, `its left at the point: ${JSON.stringify(slid)} at ${edge.x}`);
+  await page.keyboard.press('Escape');
+  await closed('Escape');
   assert.deepEqual(page.problems, []);
 });
 

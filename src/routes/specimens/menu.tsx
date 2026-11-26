@@ -1,6 +1,7 @@
 // Menu's specimens: the re-run menu, the reader's page menu, a library folder's menu and the
 // benchmark's tier checklist drawn in place, still; then working ones: a folder's ⋯ menu, a
-// right-click menu, the checklist.
+// right-click menu, a menu opened from code at a point (the reader's page menu: here at the press on
+// its button), the checklist.
 import { useState } from 'react';
 import { ContextMenu, ContextMenuTrigger, Menu, MenuCheckboxItem, MenuCheckboxItemStill, MenuContent, MenuGroup, MenuItem, MenuItemStill, MenuPanel, MenuSeparator, MenuTitle, MenuTrigger, MENU_TITLE } from '@/components/ui/menu';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,7 @@ const TIERS = [['S', 'Small'], ['M', 'Medium'], ['L', 'Large']] as const;
 export function MenuSpecimens() {
   const t = useT();
   const [tiers, setTiers] = useState<Record<string, boolean>>({ S: true });
+  const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const rerun = (state: State) => (
     <MenuPanel className="w-[320px]" {...(state === 'rest' ? tag('ctx-menu', 'rerun', state) : {})}>
       <div className={MENU_TITLE}>{t('rerun.title')}</div>
@@ -50,7 +52,7 @@ export function MenuSpecimens() {
             ))}
           </MenuPanel>)} />
       </Shape>
-      <Shape id="menu-open" name="Working menus" used="A folder's ⋯ under its button; a right-click at the pointer; the checklist. Arrows, Home, End, a letter, Enter, Escape.">
+      <Shape id="menu-open" name="Working menus" used="A folder's ⋯ under its button; a right-click at the pointer; one opened from code at a point (the reader's page menu); the checklist. Arrows, Home, End, a letter, Enter, Escape.">
         <div className="flex flex-wrap items-start gap-[16px]">
           <Menu>
             <MenuTrigger render={<Button variant="quiet" size="icon" aria-label={t('lf.open')} data-specimen-open="menu" />}><Ellipsis aria-hidden /></MenuTrigger>
@@ -72,6 +74,18 @@ export function MenuSpecimens() {
               </MenuGroup>
             </MenuContent>
           </ContextMenu>
+          <Button data-specimen-open="point" onClick={(e) => setPoint({ x: e.clientX, y: e.clientY })}>{t('page.properties')}</Button>
+          <Menu open={!!point} onOpenChange={(open) => { if (!open) setPoint(null); }}>
+            {point && (
+              <MenuContent point={point} className="min-w-[220px]" data-specimen-menu="point">
+                <MenuGroup>
+                  <MenuTitle>{t('page.menu_title', { n: 4 })}</MenuTitle>
+                  <MenuItem detail={t('page.translate_detail')}>{t('page.translate')}</MenuItem>
+                  <MenuItem detail={t('page.properties_detail')} shortcut="I">{t('page.properties')}</MenuItem>
+                </MenuGroup>
+              </MenuContent>
+            )}
+          </Menu>
           <Menu>
             <MenuTrigger render={<Button data-specimen-open="checklist" />}>{t('rd.tab_pages')}</MenuTrigger>
             <MenuContent variant="checklist" align="end" sideOffset={4} data-specimen-menu="checklist">
