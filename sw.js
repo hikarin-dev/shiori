@@ -17,9 +17,10 @@ import { RUNNERS, cancelJobRun, runPoll } from './app/js/jobs-runner.js';
 import { enqueue, busy as importsBusy } from './app/js/import-queue.js';
 import { runFolderJob, scanning } from './app/js/folder-scan.js';
 import { movedTo, pageFile } from './app/js/pages.js';
-// Written by the build (build/shell.mjs): every file of the built site this worker keeps, and their
-// id — a hash over all of them.
-import { SHELL, SHELL_ID } from './shell-files.js';
+// Written by the build (build/shell.mjs): every file of the built site this worker keeps, their id (a
+// hash over all of them), and the hash of each file's bytes. The build makes this worker one file,
+// with the list and every module it imports inside it (build/shell.mjs, writeWorker).
+import { SHELL, SHELL_ID, HASHES } from './shell-files.js';
 
 // The scope root: http://localhost:5500/ locally, https://…/shiori/ on GitHub Pages.
 const ROOT = new URL('./', self.location.href);
@@ -31,13 +32,14 @@ const FILES_ONLY = new URL(self.location.href).searchParams.get('library') === '
 // makes the browser install every BOOT asset into a fresh cache.
 //
 // So does any change to any file of the built site. The rule: a build whose files differ in any
-// way is a new worker with its own complete cache, and it installs whole before it takes over. The
-// build gives the files one id (a hash over each one's path and bytes), which ends this cache's
-// name and the built copy of this file — a browser replaces a worker when the worker's own file
-// changed, not reliably when only a module it imports did. So the worker never runs modules older
-// than the files it serves, and the page it answers with never asks for a bundle file its cache
-// lacks. (The per-file checks below go on as they were: they bring a changed file in for as long
-// as the worker in charge is still the one from before.)
+// way is a new worker with its own complete cache, and it installs whole before it takes over, or
+// not at all. The build gives the files one id (a hash over each one's path and bytes), which ends
+// this cache's name, and builds this worker as one file with the list in it: a browser replaces a
+// worker when the worker's own file changed. Its install takes each file from the server, past the
+// browser's cache, and only as the bytes the list names (a host's edge can still hand out an older
+// copy for minutes after a release): any other copy fails the install whole, the worker before it
+// stays in charge, and the browser tries again later. The cache never takes a copy the list doesn't
+// name either: what it holds is this release, whole, and so is what a page is answered with.
 const CACHE_PREFIX = `shiori${ROOT.pathname.replace(/\//g, '_')}`;
 const SHELL_CACHE_REVISION = 69;
 const CACHE_NAME = `${CACHE_PREFIX}-shell-v${SHELL_CACHE_REVISION}-${SHELL_ID}`;
@@ -62,12 +64,29 @@ const onFirstUse = (u) => u.startsWith('vendor/pdfjs/') || u === 'vendor/marked.
 const BOOT = SHELL.filter((u) => isCode(u) && !onFirstUse(u));
 const DEFERRED = SHELL.filter((u) => !BOOT.includes(u));
 
+// Whether `body` is this release's copy of the file at `u` (a path from the root), by the list.
+const hashOf = async (body) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))]
+  .map((b) => b.toString(16).padStart(2, '0')).join('');
+const isRelease = async (u, body) => Object.hasOwn(HASHES, u) && await hashOf(body) === HASHES[u];
+const pathOf = (href) => new URL(href).pathname.slice(ROOT.pathname.length);
+
+// The file at `u` as this release has it, read from the server past the browser's cache; a throw for
+// any other copy, or none.
+async function releaseCopy(u) {
+  const resp = await fetch(new URL(u, ROOT).href, { cache: 'no-store' });
+  if (!resp.ok || resp.type !== 'basic' || resp.redirected) throw new Error(`${u}: ${resp.status}`);
+  const body = await resp.arrayBuffer();
+  if (!await isRelease(u, body)) throw new Error(`${u}: not this release's copy`);
+  return new Response(body, { status: resp.status, statusText: resp.statusText, headers: resp.headers });
+}
+
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     const cache = await caches.open(await cacheName());
     // All-or-nothing for code: a partial shell must never replace a healthy one, so a failed
-    // fetch here fails the whole install and the old worker + cache stay in place.
-    await Promise.all(BOOT.map((u) => cache.add(new URL(u, ROOT).href)));
+    // fetch, or a copy that isn't this release's, fails the whole install and the old worker + cache
+    // stay in place.
+    await Promise.all(BOOT.map(async (u) => cache.put(new URL(u, ROOT).href, await releaseCopy(u))));
     // A batch of imports running in the worker this one replaces would end with it: then this one
     // waits, and takes over once that worker's imports are done (__shioriTakeOver).
     if (!await platform.jobs.workerImporting()) self.skipWaiting();
@@ -81,28 +100,18 @@ self.addEventListener('install', (e) => {
 async function warmDeferredShell() {
   const cache = await caches.open(await cacheName());
   const missing = [];
-  for (const u of DEFERRED) {
-    const href = new URL(u, ROOT).href;
-    if (!(await cache.match(href))) missing.push(href);
-  }
-  if (missing.length) await Promise.allSettled(missing.map((href) => cache.add(href)));
+  for (const u of DEFERRED) if (!(await cache.match(new URL(u, ROOT).href))) missing.push(u);
+  if (missing.length) await Promise.allSettled(missing.map(async (u) => cache.put(new URL(u, ROOT).href, await releaseCopy(u))));
 }
 
-// A cached file is checked rather than fetched again: the server is asked whether it changed since
-// (its ETag / Last-Modified), so an unchanged file costs a bodiless 304 and writes nothing — saving
-// every file again on every visit wrote about 1 MB per page load. The browser's HTTP cache is
-// bypassed too, so the check doesn't store a second copy there. A changed file is stored, and a
-// changed piece of code tells open pages a newer version is ready. Resolves true when it changed.
-// The CDN in front of the hosted app keeps serving the previous copy of a file from some of its edge
-// servers for minutes after a push, and nothing a request sends gets past that (query strings and
-// no-cache are both answered from the edge's copy). A check answered by such an edge would store the
-// old file over the new one, and the next check the new one again — an "update ready" each time.
-// So a copy older than the one already held is never taken: files only move forward.
-const _olderThan = (a, b) => Date.parse(a) < Date.parse(b);   // false when either date is missing
-
-// `announce: false` stores a changed file without announcing it (the update being applied).
-async function revalidateEntry(cache, key, cached, target = key, { announce = true } = {}) {
-  const startedAt = Date.now();
+// A cached file is checked against the server too: asked whether it changed since (its ETag /
+// Last-Modified), so an unchanged file costs a bodiless 304 and writes nothing. The browser's HTTP
+// cache is bypassed, so the check doesn't store a second copy there. The cache never takes what the
+// check finds (it holds this release, whole): another copy on the server means another release (or a
+// host's edge still handing out an older one), and the browser is asked to look for the worker, whose
+// new version installs whole, takes over, and is what tells the pages (app-update.js). Resolves true
+// when the server had another copy.
+async function revalidateEntry(key, cached, target = key) {
   const etag = cached.headers.get('etag');
   const modified = cached.headers.get('last-modified');
   const headers = new Headers();
@@ -110,39 +119,21 @@ async function revalidateEntry(cache, key, cached, target = key, { announce = tr
   if (modified) headers.set('If-Modified-Since', modified);
   const resp = await fetch(target, { headers, cache: 'no-store' });
   if (resp.status === 304 || !resp.ok || resp.type !== 'basic') return false;
-  if (_olderThan(resp.headers.get('last-modified'), modified)) return false;
-  await cache.put(key, resp);
-  // A check that began before an update was applied is covered by it: the pages reloaded with
-  // every file current, so announcing what it found would offer them the update they just got.
-  if (announce && startedAt > _appliedAt && isCode(new URL(key).pathname)) announceUpdate();
+  if (await isRelease(pathOf(key), await resp.arrayBuffer())) return false;
+  self.registration.update().catch(() => {});
   return true;
 }
 
-let _announceTimer = null;
-let _appliedAt = 0;   // when an update was last applied (refreshShell for the pages' Update)
-function announceUpdate() {
-  clearTimeout(_announceTimer);
-  _announceTimer = setTimeout(async () => {
-    // Every file is brought up to date before the pages hear of it, so a reload — by the button or
-    // by hand — lands in the whole new version, not just the files this check happened to see.
-    await refreshShell({ announce: false }).catch(() => 0);
-    platform.control.send({ type: 'APP_UPDATE_AVAILABLE' });
-  }, 1500);
-}
-
-// Every cached file checked the same way, a few at a time. Returns how many changed. Applying an
-// update (`announce: false`) brings everything current right before the pages reload, so it calls
-// off an announcement still waiting to go out and makes none of its own — either would reach the
-// reloaded pages and offer them the update they already have.
-async function refreshShell({ announce = true } = {}) {
-  if (!announce) { clearTimeout(_announceTimer); _appliedAt = Date.now(); }
+// Every cached file checked the same way, a few at a time. Returns how many the server has another
+// copy of.
+async function refreshShell() {
   const cache = await caches.open(await cacheName());
   const requests = await cache.keys();
   let changed = 0;
   for (let i = 0; i < requests.length; i += 8) {
     await Promise.all(requests.slice(i, i + 8).map(async (request) => {
       const cached = await cache.match(request);
-      if (cached && await revalidateEntry(cache, request.url, cached, request.url, { announce }).catch(() => false)) changed++;
+      if (cached && await revalidateEntry(request.url, cached).catch(() => false)) changed++;
     }));
   }
   return changed;
@@ -194,15 +185,22 @@ self.addEventListener('fetch', (e) => {
 
   e.respondWith((async () => {
     const cache = await caches.open(await cacheName());
+    // A file it doesn't hold yet is kept once it is this release's copy (what the idle tier brings,
+    // and what only a route not installed draws with).
     const refresh = async () => {
       const resp = await fetch(navFile ? key + url.search : req, navFile ? { cache: req.cache } : undefined);
-      if (resp && resp.ok && resp.type === 'basic') cache.put(key, resp.clone()).catch(() => {});
+      if (resp && resp.ok && resp.type === 'basic' && !resp.redirected) {
+        const copy = resp.clone();
+        e.waitUntil(copy.arrayBuffer().then(async (body) => {
+          if (await isRelease(pathOf(key), body)) await cache.put(key, new Response(body, { status: copy.status, statusText: copy.statusText, headers: copy.headers }));
+        }).catch(() => {}));
+      }
       return resp;
     };
     if (req.cache !== 'reload' && req.cache !== 'no-store') {
       const cached = await cache.match(key);
       if (cached) {
-        e.waitUntil(revalidateEntry(cache, key, cached, navFile ? key + url.search : req.url).catch(() => {}));
+        e.waitUntil(revalidateEntry(key, cached, navFile ? key + url.search : req.url).catch(() => {}));
         return cached;
       }
     }
@@ -297,12 +295,13 @@ self.addEventListener('message', (e) => {
   const d = e.data;
   if (d && d.__shioriTakeOver) { self.skipWaiting(); return; }
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
-  // Updating: every cached file brought up to date before the pages reload (answered on the port).
+  // Updating: every cached file checked before the pages reload (answered on the port).
   if (d && d.__shioriRefreshShell) {
-    e.waitUntil(refreshShell({ announce: false }).catch(() => 0).then((changed) => e.ports[0]?.postMessage({ changed })));
+    e.waitUntil(refreshShell().catch(() => 0).then((changed) => e.ports[0]?.postMessage({ changed })));
     return;
   }
-  // A page left open looks for a newer version now and then; a changed file announces it.
+  // A page left open looks for a newer version now and then: another copy on the server has the
+  // browser look for the worker.
   if (d && d.__shioriCheckShell) {
     if (Date.now() - _lastShellCheck > 5 * 60 * 1000) {
       _lastShellCheck = Date.now();

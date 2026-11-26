@@ -11,7 +11,7 @@ import path from 'node:path';
 import type { Plugin } from 'vite';
 import { APP_PAGE, movedTo, pageFile } from '../app/js/pages.js';
 import { ROUTES } from '../src/routes.ts';
-import { writeShell } from './shell.mjs';
+import { writeWorker } from './shell.mjs';
 import { notInstalled, routeChunk, startData, startScript } from './start.mjs';
 import { copyServed } from './served-copy.mjs';
 
@@ -116,9 +116,9 @@ const COPIED = ['app', 'icons', 'vendor', 'sw.js', '404.html', 'CHANGELOG.md'];
 const NOT_COPIED = new Set([path.join(ROOT, 'app', 'tests')]);
 const SERVED_MODULES = path.join(ROOT, 'app', 'js');
 
-// Once the bundle is written: the copies beside it, then what the service worker keeps of it all
-// (shell.mjs: shell-files.js, with the id every file counts in, and the same id at the end of the
-// built sw.js), less the files only a route it doesn't install draws with.
+// Once the bundle is written: the copies beside it, then the service worker (shell.mjs: shell-files.js,
+// what it keeps of it all with each file's hash and the id every file counts in, less the files only a
+// route it doesn't install draws with; and sw.js built as one file, with its imports and that list).
 export function siteFiles(): Plugin {
   let outDir = '';
   let leftOut: string[] = [];
@@ -127,7 +127,7 @@ export function siteFiles(): Plugin {
     apply: 'build',
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir); },
     generateBundle(_, bundle) { leftOut = notInstalled(startData({ bundle, routes: ROUTES }), ROUTES); },
-    closeBundle() {
+    async closeBundle() {
       for (const name of COPIED) {
         fs.cpSync(path.join(ROOT, name), path.join(outDir, name), {
           recursive: true,
@@ -138,7 +138,7 @@ export function siteFiles(): Plugin {
       for (const file of fs.readdirSync(SERVED_MODULES, { recursive: true }) as string[]) {
         if (file.endsWith('.js')) copyServed(path.join(SERVED_MODULES, file), path.join(outDir, 'app', 'js', file));
       }
-      writeShell(outDir, fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'), leftOut);
+      await writeWorker(outDir, leftOut);
     },
   };
 }

@@ -4,8 +4,9 @@
 //
 // The rule now: a build whose files differ in any way is a new worker with its own complete cache,
 // and it installs whole before it takes over. The build gives the files the worker keeps one id (a
-// hash over each one's path and bytes, build/shell.mjs); the cache's name ends with it, and so does
-// the built worker's own file — which is what makes a browser replace the worker.
+// hash over each one's path and bytes, build/shell.mjs), which the cache's name ends with, and builds
+// the worker as one file with the list in it — so any change is a change to the worker's own file,
+// which is what makes a browser replace the worker.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, mkdtempSync, readFileSync, appendFileSync, renameSync, rmSync } from 'node:fs';
@@ -13,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
-import { shellFiles, shellStamp } from '../../build/shell.mjs';
+import { shellFiles } from '../../build/shell.mjs';
 import { notInstalled } from '../../build/start.mjs';
 import { ROUTES } from '../../src/routes.ts';
 
@@ -27,7 +28,7 @@ const revision = Number(revisionMatch[1]);
 
 // What the build wrote for the worker (asking for the built site throws, saying so, when there is
 // none or a source changed since: npm run build).
-const { SHELL: shell, SHELL_ID: id } = await import(pathToFileURL(join(builtSite(), 'shell-files.js')).href);
+const { SHELL: shell, SHELL_ID: id, HASHES: hashes } = await import(pathToFileURL(join(builtSite(), 'shell-files.js')).href);
 // The bundle's files the worker leaves to be fetched when first shown (a route it doesn't install),
 // as the built start.js says them.
 const leftOut = notInstalled(JSON.parse(readFileSync(join(builtSite(), 'start.js'), 'utf8').match(/const START = (\{.*\});/)[1]), ROUTES);
@@ -48,24 +49,45 @@ test('shell cache naming is root-scoped and independent from the product version
   assert.notEqual(cache, `${prefix}-shell-v${manifest.version}`);
 });
 
-test('the worker takes its files and their id from the build, and keeps no list of its own', () => {
-  assert.match(sw, /import \{ SHELL, SHELL_ID \} from '\.\/shell-files\.js';/);
+test('the worker takes its files, their hashes and their id from the build, and keeps no list of its own', () => {
+  assert.match(sw, /import \{ SHELL, SHELL_ID, HASHES \} from '\.\/shell-files\.js';/);
   assert.doesNotMatch(sw, /const (?:SHELL|FLAGS|PAGES) = /, 'the hand-written lists are gone');
   assert.match(id, /^[0-9a-f]{12}$/);
   assert.deepEqual(shell, shell.toSorted(), 'the list is sorted');
-  // The id shell-files.js carries is the one the built site's files give.
-  assert.deepEqual(kept(builtSite()), { files: shell, id });
+  // The id and the hashes shell-files.js carries are the ones the built site's files give: every file
+  // the worker keeps, and those it keeps once a route not installed asks for them.
+  assert.deepEqual(kept(builtSite()), { files: shell, id, hashes });
+  for (const file of shell) assert.match(hashes[file], /^[0-9a-f]{64}$/, `${file} has its hash`);
+  assert.deepEqual(Object.keys(hashes).filter((f) => !shell.includes(f)).toSorted(), leftOut, 'and those fetched when first shown');
 });
 
-test('the built worker\'s own file ends with the id, so a changed build is a changed worker', () => {
+test('the built worker is one file, its imports and its list inside it, so a changed build is a changed worker', () => {
   // A browser replaces a worker whose file changed. A worker whose file is the same and that only
-  // imports a changed module is not reliably replaced: Chrome starts the new one and gives it up
-  // when it asks for two unchanged imports at once, as this worker does — the old worker would
-  // stay, running the modules it had. The rest of the built copy is sw.js as it is written.
+  // imports a changed module is not reliably replaced (Chrome starts the new one and gives it up when
+  // it asks for two unchanged imports at once); and a host's edges can serve a new sw.js beside an old
+  // import for minutes after a release, which a worker built from them would run until the next one.
+  // So the built worker imports nothing: everything it runs, and the list, is in its own file.
   const built = readFileSync(join(builtSite(), 'sw.js'), 'utf8');
-  assert.ok(built.startsWith(sw), 'the built worker begins with sw.js, unchanged');
-  assert.equal(built.slice(sw.length), shellStamp(id));
-  assert.ok(shellStamp(id).includes(id) && shellStamp(id).trim().startsWith('//'), 'the stamp is a comment naming the id');
+  assert.doesNotMatch(built, /^\s*(?:import|export)\b/m, 'no import or export statement');
+  assert.doesNotMatch(built, /\bimport\s*\(\s*['"]/, 'no import() of a module of its own');
+  assert.ok(built.includes(`const SHELL_ID = ${JSON.stringify(id)};`), 'the id');
+  for (const [file, hash] of Object.entries(hashes)) assert.ok(built.includes(`${JSON.stringify(file)}: ${JSON.stringify(hash)}`), `${file}'s hash`);
+  // Its modules (their copies in the built site, less their comments), each said where it begins.
+  for (const module of ['app/js/platform.js', 'app/js/jobs-runner.js', 'app/js/import-queue.js', 'app/js/folder-scan.js', 'app/js/pages.js']) {
+    assert.match(built, new RegExp(`^// ${module.replace(/\./g, '\.')}$`, 'm'), `${module} is inside it`);
+  }
+});
+
+test('a module inside the worker that finds a file from its own address still finds it there', () => {
+  // import.meta.url inside the one file would be the worker's address, at the site's root: a module
+  // that finds a sibling from its own (pdf.js from import-files.js, a font from page-image.js) is given
+  // its own address instead, said from the worker's, so it holds under a folder too.
+  const built = readFileSync(join(builtSite(), 'sw.js'), 'utf8');
+  assert.doesNotMatch(built, /\bimport\.meta\b/);
+  assert.ok(built.includes('new URL("../../vendor/pdfjs/", new URL("app/js/import-files.js", self.location.href).href)'));
+  const at = (href) => new URL('../../vendor/pdfjs/', new URL('app/js/import-files.js', href).href).href;
+  assert.equal(at('https://example.test/shiori/sw.js?library=desktop'), 'https://example.test/shiori/vendor/pdfjs/', 'under a folder');
+  assert.equal(at('https://example.test/sw.js'), 'https://example.test/vendor/pdfjs/', 'at the root');
 });
 
 test('any change to any file the worker keeps is another id: its bytes, its name, one more, one less', (t) => {
@@ -75,12 +97,13 @@ test('any change to any file the worker keeps is another id: its bytes, its name
   cpSync(builtSite(), copy, { recursive: true });
   assert.equal(kept(copy).id, id, 'a copy of the same files has the same id');
 
-  // A module the worker imports, changed by one line: the same list of names, another id.
+  // A module the worker imports, changed by one line: the same list of names, another id and hash.
   assert.match(sw, /from '\.\/app\/js\/jobs-runner\.js';/, 'jobs-runner.js is a module the worker imports');
   appendFileSync(join(copy, 'app', 'js', 'jobs-runner.js'), '// changed\n');
   const changed = kept(copy);
   assert.deepEqual(changed.files, shell, 'the same files by name');
   assert.notEqual(changed.id, id, 'a changed module is another id');
+  assert.notEqual(changed.hashes['app/js/jobs-runner.js'], hashes['app/js/jobs-runner.js']);
 
   // A file that isn't code counts the same.
   appendFileSync(join(copy, 'CHANGELOG.md'), '\n');
@@ -116,8 +139,8 @@ test('the independent revision refreshes both agent entry points during install'
   const install = sw.match(/addEventListener\('install'[\s\S]*?\n\}\);/)[0];
   assert.match(install, /caches\.open\(await cacheName\(\)\)/,
     'install must populate the independently revisioned cache');
-  assert.match(install, /Promise\.all\(BOOT\.map/,
-    'install must replace every boot asset, including both agent entry points');
+  assert.match(install, /Promise\.all\(BOOT\.map\(async \(u\) => cache\.put\(new URL\(u, ROOT\)\.href, await releaseCopy\(u\)\)\)\)/,
+    'install must replace every boot asset, including both agent entry points, each as this release has it');
 });
 
 test('activation removes only older caches owned by this deployment root', () => {

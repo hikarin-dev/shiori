@@ -19,12 +19,19 @@ Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
 });
 globalThis.caches = { keys: async () => [], delete: async () => true, open: async () => ({}) };
+// Every copy of the app's write meter (disk-writes.js: the test's platform module's, and each worker's,
+// which carries its own) wraps IndexedDB's writes to count them. A browser's global has one copy; in
+// this one they would count each other's bookkeeping without end, so the writes are left unwrapped.
+const { put, add } = IDBObjectStore.prototype;
+const unmetered = () => Object.assign(IDBObjectStore.prototype, { put, add });
 
 // The worker as it is served: the built site's, beside the list of files the build wrote for it
 // (asking for the built site throws, saying so, when there is none or a source changed since: npm
-// run build). The platform module is the copy it imports there, so the test sees the worker's own.
+// run build). The worker carries its own copy of the platform module (it is built as one file); the
+// test's copy, the built site's, reads and writes the same rows (one IndexedDB).
 const site = pathToFileURL(builtSite() + '/').href;
 const platform = await import(new URL('app/js/platform.js', site).href);
+unmetered();
 
 // sw.js evaluated in a worker scope registered at `href`: the listeners it adds.
 async function worker(href, instance) {
@@ -36,6 +43,7 @@ async function worker(href, instance) {
     skipWaiting() {},
   };
   await import(`${new URL('sw.js', site).href}?${instance}`);
+  unmetered();
   return listeners;
 }
 

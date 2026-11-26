@@ -62,7 +62,7 @@ test('deferred assets are still precached eventually, and cached on demand meanw
   const boot = readFileSync(join(repo, 'app', 'js', 'boot-core.js'), 'utf8');
   assert.match(boot, /__shioriWarmShell/, 'the app must ask for the warm-up once idle');
   // The fetch handler is the safety net for anything not yet warmed.
-  assert.match(sw, /cache\.put\(key, resp\.clone\(\)\)/, 'responses should still be cached on demand');
+  assert.match(sw, /if \(await isRelease\(pathOf\(key\), body\)\) await cache\.put\(key, new Response\(body/, 'responses should still be cached on demand, as this release has them');
 });
 
 test('a first visit is not held behind the worker install at all', () => {
