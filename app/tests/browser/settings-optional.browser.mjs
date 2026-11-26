@@ -270,7 +270,12 @@ test('a filler written for 1.3\'s page finds nothing to hook, and returns before
       if (!content || document.getElementById('standInCards')) return 'stopped at the page';
       return 'hooked';
     })();
-    return new Promise((resolve) => setTimeout(() => { watch.disconnect(); resolve({ reached, touched }); }, 100));
+    // What it touched: the changes made while it ran, taken as it returns. (It was "any change to the
+    // document in the 100 ms after": the page's own late words landed there twice under the whole
+    // suite's load, a `characterData` the filler had no part in; alone, never.)
+    touched.push(...watch.takeRecords().map((r) => r.type));
+    watch.disconnect();
+    return { reached, touched };
   };
   const page = await open(t, NEW);
   assert.deepEqual(await run(page, entry), { reached: 'stopped at the meta', touched: [] });
