@@ -145,6 +145,35 @@ test('a working dialog: focus, Escape, the backdrop, the page held still, a dial
   assert.deepEqual(page.problems, []);
 });
 
+// The over layer (page properties, feedback): over what the reader's own chrome and settings reach
+// (430: the reader settings' picker), under a notice asked while it shows.
+test('a dialog on the over layer: over the reader\'s own layers, a notice over it', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  const box = '[data-specimen-dialog="over"]';
+  await page.evaluate(() => {
+    const chrome = Object.assign(document.createElement('div'), { id: 'at-430' });
+    chrome.style.cssText = 'position:fixed;inset:0 auto auto 0;width:200px;height:200px;z-index:430';
+    document.body.append(chrome);
+  });
+  await page.click('[data-specimen-open="over"]');
+  await page.waitForSelector(box);
+  const z = await page.$eval(box, (el) => getComputedStyle(el.closest('[data-slot="dialog-viewport"]')).zIndex);
+  assert.equal(z, '440');
+  assert.equal(await page.evaluate(() => document.elementFromPoint(100, 100)?.id), '', 'the layer it is centred in is over what stands at 430');
+  assert.ok(await page.evaluate(() => !!document.elementFromPoint(100, 100)?.closest('[data-slot="dialog-viewport"]')));
+  await page.evaluate(async () => { (await import('/app/js/notice.js')).alertDialog({ title: 'Over it' }); });
+  await page.waitForSelector('[data-notice="dialog"]');
+  const top = await page.$eval('[data-notice="dialog"]', (el) => { const r = el.getBoundingClientRect(); return !!document.elementFromPoint(r.left + r.width / 2, r.top + 10)?.closest('[data-notice="dialog"]'); });
+  assert.ok(top, 'the notice is on top');
+  await page.keyboard.press('Escape');
+  await until(page, () => !document.querySelector('[data-notice="dialog"]'), null, { what: 'the notice closed' });
+  assert.ok(await page.$(box), 'the dialog stays');
+  await page.keyboard.press('Escape');
+  await until(page, (sel) => !document.querySelector(sel), box, { what: 'the dialog closed' });
+  assert.deepEqual(page.problems, []);
+});
+
 test('the box never moves or grows after its first frame, with the CPU six times slower', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;

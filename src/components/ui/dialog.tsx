@@ -13,8 +13,9 @@
 //            (an operation, reader settings) · lg 520 (About) · xl 620 (the library filter) · 2xl
 //            760 (the advanced options, page properties) · 3xl 960 (feedback) · 4xl 1120 (the
 //            benchmark).
-//   layer    dialog (the pages' own dialogs) or notice (notice.js's, over everything else, the
-//            toast included).
+//   layer    dialog (the pages' own dialogs), over (a dialog over the reader's own chrome and its
+//            settings, which reach 430: page properties, feedback) or notice (notice.js's, over
+//            everything else, the toast included).
 //
 // What scrolls stops where the box's corners begin to curve (owner, 2026-11-26): the browser draws a
 // scrollbar the whole height of the box that scrolls, and nothing in CSS shortens one, so the box that
@@ -73,7 +74,7 @@ function DialogTrigger(props: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
 }
 
-const LAYER = { dialog: 'z-dialog', notice: 'z-notice' } as const;
+const LAYER = { dialog: 'z-dialog', over: 'z-dialog-over', notice: 'z-notice' } as const;
 
 const box = cva(
   'relative min-w-0 rounded-12 border border-solid border-input bg-popover text-popover-foreground shadow-dialog outline-none [overflow-wrap:anywhere]',

@@ -118,10 +118,25 @@ export function DialogSpecimens() {
             <p className="text-12 text-muted-foreground">…</p>
           </Still>)} />
       </Shape>
-      <Shape id="dialog-open" name="Working dialog" used="Opened by its button: focus trapped and given back, Escape and the backdrop close it, the page and its scrollbar stay; a dialog over it.">
+      <Shape id="dialog-open" name="Working dialog" used="Opened by its button: focus trapped and given back, Escape and the backdrop close it, the page and its scrollbar stay; a dialog over it. The over layer: a dialog over the reader's own chrome and settings (page properties, feedback).">
         <Line label="sectioned · 2xl" states={['rest']} render={() => <Working />} />
+        <Line label="simple · over" states={['rest']} render={() => <Over />} />
       </Shape>
     </Section>
+  );
+}
+
+// On the over layer, as page properties over the reader's chrome and settings.
+function Over() {
+  const t = useT();
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button data-specimen-open="over" />}>{t('page.properties')}</DialogTrigger>
+      <DialogContent size="sm" layer="over" data-specimen-dialog="over">
+        <DialogHeader><DialogTitle>{t('page.properties')}</DialogTitle><DialogClose /></DialogHeader>
+        <p className={BODY}>{t('page.loading')}</p>
+      </DialogContent>
+    </Dialog>
   );
 }
 
