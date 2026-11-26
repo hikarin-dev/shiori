@@ -1,78 +1,25 @@
 // reader-page-menu.js — the reader's right-click menu for one page, and the status line that
-// follows a page's translation. The reader decides the items; this places the menu at the pointer,
-// keeps it on screen and handles the keyboard. Shift+right-click keeps the browser's own menu.
+// follows a page's translation. The reader decides the items; the one page draws the menu: its reader
+// route registers a host here (setPageMenuHost, src/routes/reader/page-menu-store.ts) before it starts
+// the reader, and openPageMenu hands the request to it, which draws it at the pointer with the app's
+// menu (src/routes/reader/page-menu.tsx). Shift+right-click keeps the browser's own menu (the reader's).
 
-let _open = null;
-
-function close() {
-  if (!_open) return;
-  _open.menu.remove();
-  document.removeEventListener('pointerdown', _open.outside, true);
-  document.removeEventListener('keydown', _open.key, true);
-  window.removeEventListener('scroll', close, true);
-  window.removeEventListener('resize', close);
-  window.removeEventListener('blur', close);
-  _open = null;
+let _host = null;
+export function setPageMenuHost(host) {
+  _host = host;
+  return () => { if (_host === host) _host = null; };
 }
+const _drawer = () => {
+  if (!_host) throw new Error('reader-page-menu.js: no page menu host has registered (setPageMenuHost)');
+  return _host;
+};
 
-export const pageMenuOpen = () => !!_open;
-export function closePageMenu() { close(); }   // the reader's stop
+export const pageMenuOpen = () => !!_host?.isOpen();
+export function closePageMenu() { _host?.close(); }   // the reader's stop
 
-// `items`: [{ label, detail?, kbd?, disabled?, onPick }].
+// `items`: [{ label, detail?, kbd?, disabled?, onPick }]. A choice closes the menu, then runs onPick.
 export function openPageMenu(x, y, title, items) {
-  close();
-  const menu = document.createElement('div');
-  menu.className = 'ctx-menu page-menu';
-  menu.setAttribute('role', 'menu');
-  const head = document.createElement('div');
-  head.className = 'ctx-menu-title';
-  head.textContent = title;
-  menu.append(head);
-  for (const item of items) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'ctx-menu-item';
-    button.setAttribute('role', 'menuitem');
-    button.disabled = !!item.disabled;
-    const label = document.createElement('span');
-    label.className = 'ctx-menu-label';
-    label.textContent = item.label;
-    if (item.kbd) {
-      const kbd = document.createElement('kbd');
-      kbd.textContent = item.kbd;
-      label.append(kbd);
-    }
-    button.append(label);
-    if (item.detail) {
-      const detail = document.createElement('span');
-      detail.className = 'ctx-menu-detail';
-      detail.textContent = item.detail;
-      button.append(detail);
-    }
-    button.addEventListener('click', () => { close(); item.onPick(); });
-    menu.append(button);
-  }
-  document.body.append(menu);
-  const m = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(innerWidth - m.width - 8, x))}px`;
-  menu.style.top = `${Math.max(8, Math.min(innerHeight - m.height - 8, y))}px`;
-  const enabled = [...menu.querySelectorAll('.ctx-menu-item:not(:disabled)')];
-  const outside = (e) => { if (!menu.contains(e.target)) close(); };
-  const key = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    e.preventDefault();
-    e.stopPropagation();
-    const at = enabled.indexOf(document.activeElement);
-    enabled[(at + (e.key === 'ArrowDown' ? 1 : enabled.length - 1)) % enabled.length]?.focus();
-  };
-  _open = { menu, outside, key };
-  document.addEventListener('pointerdown', outside, true);
-  document.addEventListener('keydown', key, true);
-  window.addEventListener('scroll', close, true);
-  window.addEventListener('resize', close);
-  window.addEventListener('blur', close);
-  enabled[0]?.focus({ preventScroll: true });
+  _drawer().open({ x, y, title, items });
 }
 
 // One line at the bottom of the reader; `busy` shows a spinner and stays until replaced.

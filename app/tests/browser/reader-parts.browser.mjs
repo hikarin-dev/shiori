@@ -12,8 +12,8 @@ const COUNT = 6;
 let server, origin, browser;
 
 // What draws each part (its box, its items or its close button).
-const MENU = '.ctx-menu.page-menu, [data-reader-part="page-menu"]';
-const MENU_ITEM = ':is(.ctx-menu-item, [data-slot="menu-item"])';
+const MENU = '[data-reader-part="page-menu"]';
+const MENU_ITEM = '[data-slot="menu-item"]';
 const PROPERTIES = 'dialog.pp-dialog, [data-reader-part="properties"]';
 const FEEDBACK = 'dialog.feedback-dialog[open], [data-reader-part="feedback"]';
 
@@ -86,7 +86,8 @@ const centre = (page, y = 0.3) => page.evaluate((y) => ({ x: Math.round(innerWid
 async function openMenu(page, at) {
   at ??= await centre(page);
   await page.mouse.click(at.x, at.y, { button: 'right' });
-  await until(page, async () => (await import('/app/js/reader-page-menu.js')).pageMenuOpen() && document.querySelectorAll('.ctx-menu-item, [data-slot="menu-item"]').length > 1, null, { what: 'the page menu' });
+  await until(page, async () => (await import('/app/js/reader-page-menu.js')).pageMenuOpen() && document.querySelectorAll('[data-reader-part="page-menu"] [data-slot="menu-item"]').length > 1
+    && !!document.activeElement?.closest('[data-reader-part="page-menu"]'), null, { what: 'the page menu, focus in it' });
   return at;
 }
 async function openProperties(page) {
@@ -167,33 +168,53 @@ test('the page menu closes on a press outside, a scroll, a resize, the window lo
   assert.equal((await state(page)).menu, false, 'a choice closes it');
 });
 
-test('keys with the page menu open: Up and Down move between its items, Escape closes it, Enter does nothing; the reader\'s own keys reach the reader', { skip: !chromePath() }, async (t) => {
+// The menu's keys are the menu's (the menu pattern, as every menu of the app: §5.3 F39): the arrows move
+// and wrap, Home and End, typing a letter goes to the item it starts, Enter chooses, Escape closes; the
+// keys it does not use (the side arrows, Space) are the reader's, as with 1.3's menu. Focus starts on the
+// menu itself, no item lit (F50: a menu opened by the pointer).
+test('keys with the page menu open: the arrows, Home, End and typing are the menu\'s, Enter chooses, Escape closes it; the keys it does not use reach the reader', { skip: !chromePath() }, async (t) => {
   const page = await reader(t);
   await openMenu(page);
   const first = await state(page);
-  await page.keyboard.press('ArrowDown');
-  const down = await state(page);
-  assert.deepEqual(reader_(down), reader_(first), 'the reader did nothing');
-  assert.equal(down.menu, true);
-  assert.match(down.focus, /^Page properties/, 'Down moves to the next item');
-  await page.keyboard.press('ArrowUp');
-  assert.match((await state(page)).focus, /^Translate this page/, 'Up moves back');
+  assert.match(first.focus, /^Page 2/, 'focus on the menu, no item lit');
+  for (const [key, lit] of [['ArrowDown', /^Translate this page/], ['ArrowDown', /^Page properties/], ['ArrowDown', /^Translate this page/], ['ArrowUp', /^Page properties/], ['Home', /^Translate this page/], ['End', /^Page properties/]]) {
+    await page.keyboard.press(key);
+    const now = await state(page);
+    assert.deepEqual(reader_(now), reader_(first), `${key}: the reader did nothing`);
+    assert.equal(now.menu, true);
+    assert.match(now.focus, lit, `${key} moves to ${lit}`);
+  }
+  for (const key of ['d', 'g', 'i', '2', 'x']) {
+    await page.keyboard.press(key);
+    await sleep(120);
+    const now = await state(page);
+    assert.deepEqual(reader_(now), reader_(first), `${key}: typed into the menu, not the reader's`);
+    assert.deepEqual([now.menu, now.properties], [true, false]);
+  }
   await page.keyboard.press('ArrowRight');
   await sleep(300);
-  assert.equal((await state(page)).page, '3 / 6', 'the arrow the menu does not use turns the page');
+  const turned = await state(page);
+  assert.deepEqual([turned.page, turned.menu, turned.focus], ['3 / 6', true, 'body'], 'the arrow the menu does not use turns the page; the reader takes the focus off the menu, which stays');
+  // Its keys are still its own, as 1.3's were: Down goes back to its first item, Escape closes it
+  // and does not reach the reader (whose Escape opens the shortcuts).
+  await page.keyboard.press('ArrowDown');
+  const back = await state(page);
+  assert.match(back.focus, /^Translate this page/);
+  assert.equal(back.scrollY, turned.scrollY);
+  await page.keyboard.press('ArrowRight');
+  await sleep(300);
   await page.keyboard.press('Escape');
   await sleep(200);
   const closed = await state(page);
-  assert.equal(closed.menu, false, 'Escape closes it');
-  assert.equal(closed.page, '3 / 6');
-  // Enter on the item focused: 1.3's reader takes the focus off it first (a key after a pointer's
-  // press drops the focus the press left), so nothing is chosen and the menu stays.
+  assert.deepEqual([closed.menu, closed.keys], [false, false], 'Escape closes it, and only it');
+  assert.equal(closed.page, '4 / 6');
+  // Enter chooses the item lit (1.3's reader took the focus off it first, so nothing was chosen).
   await openMenu(page);
   await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
-  await sleep(300);
-  const entered = await state(page);
-  assert.deepEqual([entered.menu, entered.properties, entered.focus], [true, false, 'body']);
+  await until(page, async () => (await import('/app/js/reader-properties.js')).propertiesOpen(), null, { what: 'page properties, chosen by Enter' });
+  assert.equal((await state(page)).menu, false);
 });
 
 // Every key of the reader's that does something with nothing open, pressed with the dialog open: none

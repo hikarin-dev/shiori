@@ -234,7 +234,7 @@
     --z-index-dialog: 400;
     --z-index-dialog-raised: 410;     /* reader settings */
     --z-index-status: 420;            /* the reader's status pill */
-    --z-index-status-menu: 430;       /* its picker, the reader's page menu */
+    --z-index-status-menu: 430;       /* its picker */
     --z-index-menu: 900;              /* context menus (folder, re-run) */
     --z-index-drop: 1000;             /* the file drop overlay */
     --z-index-tooltip: 9999;

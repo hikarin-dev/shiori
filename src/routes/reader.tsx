@@ -1,6 +1,7 @@
 // reader.tsx — the reader as the one page draws it (at /reader?g=…, 1.3's page until 2026-11-26): its
-// frame, and the engine (app/js/reader.js) started in it. The engine, the chrome, the dialogs and the
-// menus are the reader's own, as on its page.
+// frame, and the engine (app/js/reader.js) started in it. The engine and the chrome are the reader's
+// own, as on its page; what its modules ask the one page to draw (the page's right-click menu) is drawn
+// beside the frame (./reader/parts.tsx), through hosts registered for each start.
 //
 // The frame is the markup 1.3's page had in its body (./reader/frame.ts), drawn by React once and never
 // again: the engine owns everything inside it. Each start has a frame of its own: the route is keyed on
@@ -20,6 +21,7 @@ import { applyTranslations } from '@lib/i18n.js';
 import { goTo } from '@/lib/links';
 import { dismissSince, noticeMark } from '@/lib/notice-store';
 import { FRAME } from './reader/frame';
+import { ReaderParts, hostReaderParts } from './reader/parts';
 import { setReaderNames, takeReaderNames } from './reader/names';
 
 type Go = (path: string) => void;
@@ -33,9 +35,11 @@ const ReaderFrame = memo(function ReaderFrame({ go }: { go: Go }) {
     document.title = 'Shiori — Reader';
     applyTranslations(frame.current as unknown as Document);   // its words (1.3's page had boot.js fill them)
     const mark = noticeMark();
+    const unhost = hostReaderParts();
     const reader = startReader({ go });
     return () => {
-      reader.stop();
+      reader.stop();   // (it closes what it asked the parts to show)
+      unhost();
       dismissSince(mark);   // its questions go with it, as with its page
       takeReaderNames(html);
       delete html.dataset.reader;
@@ -48,5 +52,10 @@ export default function Reader() {
   const navigate = useNavigate();
   const g = new URLSearchParams(useLocation().search).get('g') ?? '';
   const go = useRef<Go>((path) => { goTo(navigate, path); }).current;
-  return <ReaderFrame key={g} go={go} />;
+  return (
+    <>
+      <ReaderFrame key={g} go={go} />
+      <ReaderParts />
+    </>
+  );
 }

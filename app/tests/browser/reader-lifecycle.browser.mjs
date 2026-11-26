@@ -241,7 +241,7 @@ async function use(page, c) {
   } else {
     const at = await page.evaluate(() => { const r = document.getElementById('mainImg').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 20 }; });
     await page.mouse.click(at.x, at.y, { button: 'right' });
-    await until(page, () => !!document.querySelector('.page-menu'), null, { what: 'the page menu' });
+    await until(page, () => !!document.querySelector('[data-reader-part="page-menu"]'), null, { what: 'the page menu' });
   }
 }
 
@@ -272,7 +272,7 @@ async function leftAfterStop(page, cdp) {
   const inPage = await page.evaluate(() => ({ ...globalThis.__live(), headStyles: document.head.querySelectorAll('style').length,
     bodyChildren: [...document.body.children].map((e) => e.id || `${e.localName}.${e.className}`).join(' '),
     inDocument: document.getElementsByTagName('*').length,
-    dialogs: document.querySelectorAll('dialog').length, menus: document.querySelectorAll('.page-menu, .page-status').length }));
+    dialogs: document.querySelectorAll('dialog').length, menus: document.querySelectorAll('[data-reader-part], .page-status').length }));
   return { nodes, jsEventListeners, listeners, ...inPage };
 }
 
@@ -301,8 +301,15 @@ test('started, used and stopped five times, the reader leaves nothing behind, an
   assert.equal(await page.evaluate(() => window.__stayed), true, 'one document throughout');
   t.diagnostic(JSON.stringify(rows.map(({ nodes, jsEventListeners, listeners, inDocument }) => ({ nodes, inDocument, jsEventListeners, ...listeners }))));
   const [first] = rows, last = rows.at(-1);
+  // React listens, once and for the document's life, to every kind of event on each element it draws
+  // a portal into (143 listeners, all its own), and the one page's popups portal into <body>: from the
+  // first part the reader asked the one page to draw on (its page menu, its dialogs) <body> has them,
+  // the same number at every later stop.
+  const portalled = rows.findIndex((row) => row.listeners.body > 0);
+  if (portalled >= 0) for (const row of rows.slice(portalled)) assert.equal(row.listeners.body, rows[portalled].listeners.body, 'React\'s listeners on <body>, once');
   for (const row of rows) {
-    assert.deepEqual(row.listeners, first.listeners, 'listeners on the window, the document, <html> and <body> as after the first stop');
+    assert.deepEqual({ ...row.listeners, body: portalled >= 0 && rows.indexOf(row) >= portalled ? 0 : row.listeners.body }, { ...first.listeners, body: 0 },
+      'listeners on the window, the document, <html> and <body> as after the first stop');
     assert.deepEqual({ objectUrls: row.objectUrls, workers: row.workers, dialogs: row.dialogs, menus: row.menus }, { objectUrls: 0, workers: 0, dialogs: 0, menus: 0 });
     assert.equal(row.observers, first.observers, 'resize observers watching');
     assert.equal(row.headStyles, first.headStyles, 'no <style> left in the head');

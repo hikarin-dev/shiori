@@ -111,7 +111,7 @@ function controls() {
   const out = {};
   const key = (el) => { const parts = []; for (let e = el; e && e !== document.body && !e.classList.contains('reader-frame'); e = e.parentElement) parts.unshift(e.id ? `#${e.id}` : e.parentElement === document.body ? `${e.localName}.${e.classList[0]}` : `${e.localName}:${[...e.parentElement.children].indexOf(e)}`); return parts.join('>'); };
   for (const el of document.body.querySelectorAll('button, input, select, textarea, option')) {
-    if (el.closest('.notice-overlay, .notice-toast, .shiori-tip')) continue;
+    if (el.closest('.notice-overlay, .notice-toast, .shiori-tip, [data-reader-part]')) continue;   // (the parts the one page draws for the reader: their components' own tests)
     const s = getComputedStyle(el);
     out[key(el)] = Object.fromEntries(PROPS.map((p) => [p, s.getPropertyValue(p)]));
   }
@@ -143,7 +143,7 @@ test('the one page\'s document defaults reach no control of the reader\'s: each 
     }
     await page.keyboard.press('Escape');
     await page.mouse.click(640, 400, { button: 'right' });
-    await page.waitForSelector('.page-menu');
+    await page.waitForSelector('[data-reader-part="page-menu"]');
     await settle(page);
     seen.menu = await page.evaluate(controls);
     await page.keyboard.press('Escape');

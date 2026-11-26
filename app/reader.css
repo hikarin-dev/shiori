@@ -1,8 +1,8 @@
 /* reader.css — the reader. Its colours are the one page's tokens (src/styles/tokens.css: --primary
    the brand colour, --muted-foreground secondary text, --reader-background the reader's ground…).
    Reset and tooltip come from the one page's sheets; the spin, the study-mode typefaces, the brand and
-   the page menu, the (i) icon and the context menu, below, were 1.3's base.css's, and the dropdowns'
-   look, at the end, was dropdown.css's.
+   the page menu and the (i) icon, below, were 1.3's base.css's, and the dropdowns' look, at the end, was
+   dropdown.css's. The page's right-click menu is the one page's (src/routes/reader/page-menu.tsx).
    What it sets on :root, html and body holds only while the reader is in the document: <html
    data-reader>, the reader's mark (the route sets it while the reader shows; 1.3's own page had it from
    the start). :where() adds no weight, so each rule weighs what it did. */
@@ -14,7 +14,7 @@
    as 1.3's base.css had them. Zero weight and first: every rule of the reader's outweighs it. Its roots
    are the reader's parts that hold controls: the frame's, and the dialogs and the menu its scripts add
    to <body>. */
-:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal, .page-menu, .feedback-dialog, .pp-dialog) :where(button, input, select, optgroup, textarea),
+:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal, .feedback-dialog, .pp-dialog) :where(button, input, select, optgroup, textarea),
 :where(#scrollTopBtn) {
   font: revert; font-variant-ligatures: none; letter-spacing: revert;
   color: revert; background-color: revert; border: revert; border-radius: revert; opacity: revert;
@@ -99,27 +99,6 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-/* ── Context menu (reader-page-menu.js): a title, then items with an optional
-   detail line under the label. Each menu sets its own layer and width. ── */
-.ctx-menu:where(.page-menu) {
-  position: fixed; max-width: 320px; padding: 5px;
-  background: var(--popover); border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-:where(.page-menu) .ctx-menu-title { padding: 5px 9px 6px; color: var(--muted-foreground); font-size: 11px; }
-:where(.page-menu) .ctx-menu-item {
-  display: block; width: 100%; padding: 7px 9px; border: 0; border-radius: 5px;
-  background: none; color: var(--foreground); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
-}
-:where(.page-menu) .ctx-menu-item:hover:not(:disabled), :where(.page-menu) .ctx-menu-item:focus-visible { background: var(--border); outline: none; }
-:where(.page-menu) .ctx-menu-item:disabled { cursor: default; opacity: 0.55; }
-:where(.page-menu) .ctx-menu-label { display: block; }
-:where(.page-menu) .ctx-menu-label kbd {
-  padding: 1px 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--reader-background);
-  color: var(--muted-foreground); font-family: inherit; font-size: 10px;
-}
-:where(.page-menu) .ctx-menu-detail { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: 11px; line-height: 1.35; }
 
 /* ── Button in the reader's dialogs: neutral, or .primary / .danger (1.3's base.css's) ── */
 :where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn {
@@ -1309,9 +1288,7 @@ body.thumb-dragging * {
   .pp-steps th { width: 96px; }
 }
 
-/* ── A page's right-click menu, and the status line of its translation ── */
-.page-menu { z-index: 430; min-width: 220px; }
-.page-menu .ctx-menu-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* ── The status line of a page's translation ── */
 .page-status {
   position: fixed; left: 50%; bottom: 28px; z-index: 420; max-width: min(520px, calc(100vw - 32px));
   padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--popover);
