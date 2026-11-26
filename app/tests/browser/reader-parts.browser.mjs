@@ -457,3 +457,86 @@ test('feedback: sending and exporting a report, each outcome said in its status 
   await press('feedback.export');
   await says(await words('feedback.exported_cached'), 'the cached evidence exported');
 });
+
+// Left open when the reader is left (Back to Tasks, a change of route): the reader's stop closes each, its
+// host goes with it, and nothing of it is in the document after (a feedback draft's pictures released);
+// the same leaving each after it was opened and closed. From Tasks by a link, as the app's own are followed.
+test('leaving the reader with the page menu, page properties or feedback open, or after closing them, leaves nothing of them', { skip: !chromePath() }, async (t) => {
+  const page = await openPage(browser, origin);
+  t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
+  await page.evaluateOnNewDocument(() => {
+    localStorage.setItem('shiori-reader-nav', 'top');
+    localStorage.setItem('shiori-reader-pin', '1');
+    localStorage.setItem('shiori:readerMode', JSON.stringify('single'));
+    localStorage.setItem('shiori:readerView', JSON.stringify('study'));
+    localStorage.setItem('shiori:readerThumbsOpen', 'false');
+    localStorage.setItem('shiori:readerFitMode', JSON.stringify('height'));
+    const urls = new Set(), create = URL.createObjectURL, revoke = URL.revokeObjectURL;
+    URL.createObjectURL = (o) => { const u = create.call(URL, o); urls.add(u); return u; };
+    URL.revokeObjectURL = (u) => { urls.delete(u); return revoke.call(URL, u); };
+    globalThis.__urls = urls;
+  });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  const parts = { menu: (p) => openMenu(p), properties: (p) => openProperties(p), feedback: (p) => openFeedback(p, 0) };
+  for (const [name, open] of Object.entries(parts)) {
+    for (const closed of [false, true]) {
+      await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); a.remove(); }, `/reader?g=${GALLERY}&page=2`);
+      await until(page, () => document.getElementById('mainImg')?.naturalWidth > 0 && document.querySelectorAll('.bubble-box').length > 1, null, { what: 'the reader' });
+      await sleep(300);
+      await open(page);
+      if (closed) {
+        await page.keyboard.press('Escape');
+        await until(page, async () => { const [m, p, f] = await Promise.all(['reader-page-menu', 'reader-properties', 'reader-feedback'].map((n) => import(`/app/js/${n}.js`))); return !m.pageMenuOpen() && !p.propertiesOpen() && !f.feedbackOpen(); }, null, { what: `${name} closed` });
+      }
+      await page.goBack();
+      await until(page, () => !document.querySelector('.reader-frame') && !!document.getElementById('tkList'), null, { what: 'Tasks again' });
+      await sleep(300);
+      const left = await page.evaluate(async () => {
+        const [m, p, f] = await Promise.all(['reader-page-menu', 'reader-properties', 'reader-feedback'].map((n) => import(`/app/js/${n}.js`)));
+        return { open: [m.pageMenuOpen(), p.propertiesOpen(), f.feedbackOpen()], drawn: document.querySelectorAll('[data-reader-part], [data-slot="dialog-backdrop"], [data-slot="menu"]').length,
+          urls: globalThis.__urls.size };
+      });
+      assert.deepEqual(left, { open: [false, false, false], drawn: 0, urls: 0 }, `${name} ${closed ? 'opened and closed' : 'left open'}`);
+      // Its module has no host: a request now would throw, as with no reader.
+      assert.equal(await page.evaluate(async () => { try { await (await import('/app/js/reader-properties.js')).openPageProperties({}); return 'drawn'; } catch (e) { return /no page properties host/.test(e.message); } }), true);
+    }
+  }
+});
+
+// Over the reader's chrome in every state: the top bar or the side controls, the thumbnails open, reader
+// settings open under page properties (I works with them open); the menu over the side controls it is
+// slid onto at the window's corner.
+test('the menu and the dialogs show over the reader\'s chrome, reader settings and the thumbnails', { skip: !chromePath() }, async (t) => {
+  for (const nav of ['top', 'side']) {
+    const page = await reader(t);
+    await page.evaluate((nav) => localStorage.setItem('shiori-reader-nav', nav), nav);
+    await page.reload({ waitUntil: 'load' });
+    await until(page, () => document.getElementById('mainImg')?.naturalWidth > 0, null, { what: 'the reader' });
+    await sleep(300);
+    await page.keyboard.press('g');
+    await until(page, () => document.body.classList.contains('thumbs-open'), null, { what: 'the thumbnails' });
+    const onTop = (sel) => page.evaluate((sel) => {
+      const box = document.querySelector(sel).getBoundingClientRect();
+      const points = [[box.left + 4, box.top + 4], [box.right - 4, box.top + 4], [box.left + 4, box.bottom - 4], [box.right - 4, box.bottom - 4], [box.left + box.width / 2, box.top + box.height / 2]];
+      return points.every(([x, y]) => x < 0 || y < 0 || x > innerWidth || y > innerHeight || !!document.elementFromPoint(x, y)?.closest(sel));
+    }, sel);
+    // The menu at the window's bottom right corner, slid over the side controls and the thumbnails.
+    const corner = await page.evaluate(() => { const r = document.getElementById('mainImg').getBoundingClientRect(); return { x: Math.floor(r.right - 6), y: Math.floor(r.top + r.height * 0.6) }; });
+    await openMenu(page, corner);
+    assert.ok(await onTop(MENU), `${nav}: the menu over everything under it`);
+    await page.keyboard.press('Escape');
+    // Reader settings open, then I.
+    await page.evaluate((nav) => document.getElementById(nav === 'side' ? 'snSettings' : 'readerSettingsBtn').click(), nav);
+    await until(page, () => document.getElementById('readerSettingsModal').classList.contains('show'), null, { what: 'reader settings' });
+    await openProperties(page);
+    assert.ok(await onTop(PROPERTIES), `${nav}: page properties over reader settings`);
+    await page.keyboard.press('Escape');
+    await until(page, async () => !(await import('/app/js/reader-properties.js')).propertiesOpen(), null, { what: 'page properties closed' });
+    assert.equal(await page.evaluate(() => document.getElementById('readerSettingsModal').classList.contains('show')), true, 'Escape closed page properties alone');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('b');
+    await openFeedback(page, 0);
+    assert.ok(await onTop(FEEDBACK), `${nav}: feedback over the thumbnails and the controls`);
+  }
+});
