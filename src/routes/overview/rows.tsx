@@ -48,6 +48,9 @@ export type RowDeps = {
   covers: OverviewCovers;
   jobs: ChapterJobs;
   grids: GridEngine;
+  // The chapters whose pages are open in this visit of the page (the page keeps them by history entry:
+  // coming Back to it, they are open as they were left).
+  opened: { has: (id: string) => boolean; set: (id: string, open: boolean) => void };
   on: RowOn;
   view: (chapter: Ref, idx: number, entity: Entity | null) => RowView;
   actions: (entity: Entity | null, job: JobNews | null, held: boolean) => RowActions;
@@ -117,9 +120,11 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
   const job = useSyncExternalStore(follow, () => jobs.get(id));
   const held = useSyncExternalStore(follow, () => jobs.held(id));
   const cover = useCover(covers, entity ? id : null, {}, entity);
-  const [open, setOpen] = useState(false);
+  const { opened } = deps;
+  const [open, setOpen] = useState(() => opened.has(id));
+  const show = useCallback((next: boolean) => { opened.set(id, next); setOpen(next); }, [opened, id]);
   // Edit mode closes the chapter's pages (its toggle is gone meanwhile).
-  useEffect(() => { if (editing) setOpen(false); }, [editing]);
+  useEffect(() => { if (editing) show(false); }, [editing, show]);
   const actions = deps.actions(entity, job, held);
   const progress = job ? deps.jobView(job) : null;
   const working = !!job;
@@ -149,7 +154,7 @@ export const ChapterRow = memo(function ChapterRow({ chapter, idx, entity, last,
         <Actions t={t} a={actions} first={first} last={last} on={on} chapter={chapter} entity={entity} label={chapter.title || view.fallback} />
         {entity && (
           <Button variant="ghost" size="icon-md" coarse="40" className="ch-ibtn ch-expand" data-expand aria-expanded={open}
-            data-tip={t(open ? 'ov.hide_pages' : 'ov.show_pages')} onClick={() => setOpen((was) => !was)}>
+            data-tip={t(open ? 'ov.hide_pages' : 'ov.show_pages')} onClick={() => show(!open)}>
             <DownIcon />
           </Button>
         )}

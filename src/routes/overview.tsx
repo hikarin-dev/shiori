@@ -96,13 +96,36 @@ const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ de
 // The covers of the overviews shown this session (./overview/covers.ts, `kept`).
 const keptCovers = new Map<string, string>();
 
+// The chapters whose pages were open, by history entry (the router's key for it; the last ENTRIES):
+// an overview come Back or Forward to shows them open as it was left, as a document the browser kept
+// did, so the page is as tall as it was and the scroll it had holds. Arrived at anew (another entry),
+// none is open.
+const ENTRIES = 20;
+const openedRows = new Map<string, Set<string>>();
+function rowsOpenedAt(entry: string): RowDeps['opened'] {
+  return {
+    has: (id) => !!openedRows.get(entry)?.has(id),
+    set(id, open) {
+      let rows = openedRows.get(entry);
+      if (!rows) {
+        if (!open) return;
+        openedRows.set(entry, rows = new Set());
+        for (const oldest of openedRows.keys()) { if (openedRows.size <= ENTRIES) break; openedRows.delete(oldest); }
+      }
+      if (open) rows.add(id); else rows.delete(id);
+    },
+  };
+}
+
 export default function Overview() {
   // 1.3's page's own title (overview.html).
   useTitle('Series');
   const t = useT();
   const navigate = useNavigate();
   const client = useQueryClient();
-  const g = new URLSearchParams(useLocation().search).get('g');
+  const { search, key: entry } = useLocation();
+  const g = new URLSearchParams(search).get('g');
+  const openRows = useMemo(() => rowsOpenedAt(entry), [entry]);
 
   // ── The page's stores: covers, jobs on rows, the page grids' engine, the import batches ──
   const [covers] = useState(() => createOverviewCovers({ rpc: platform.rpc, onControl: platform.onControl, kept: keptCovers }));
@@ -325,11 +348,11 @@ export default function Overview() {
   }, [t, covers, actions]);
 
   const rowDeps = useMemo<RowDeps>(() => ({
-    t, covers, jobs, grids, on: rowOn,
+    t, covers, jobs, grids, opened: openRows, on: rowOn,
     view: (ch, idx, e) => rowView(ch, idx, e, { pickTitle: pickTitle as never, chapterNumberLabel: chapterNumberLabel as never, memberKind, safeExternalUrl: safeExternalUrl as never, readerHref }, formats),
     actions: (e, job, held) => rowActions(e, job, !!e && (canDownload(e as never) as boolean), canDetachChapter(e as never) as boolean, formats, held),
     jobView: (job) => chapterJob(job, formats),
-  }), [t, covers, jobs, grids, rowOn, formats, sites]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }), [t, covers, jobs, grids, openRows, rowOn, formats, sites]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keyboard use: a row's buttons stay up while one of them has keyboard focus ──
   // Not the focus a click leaves behind: the clicked row may slide away from the pointer (an arrow

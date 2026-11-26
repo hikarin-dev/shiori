@@ -599,3 +599,73 @@ test('a job begun in the reader is drawn on the overview\'s row and the library\
   assert.equal(await kept(page), true, 'one document throughout: changes of route');
   assert.deepEqual([page.problems, tasks.problems], [[], []]);
 });
+
+// A chapter's pages opened under its row stay open for that visit of the page. 1.3's page, come Back to
+// as a document the browser kept, had them open still; the one page drew every row closed again, so the
+// page was shorter than it was left and what was in view had moved. The rows open are kept by history
+// entry (src/routes/overview.tsx, openedRows), and an opened chapter's grid stands at the height it had
+// until its tiles are back (parts.tsx): the page is as it was left in its first frame. Arrived at anew
+// (another entry), none is open.
+test('Back to a series\' overview finds the chapters\' pages that were open still open, the scroll and the place kept in every frame; arrived at anew, none is open', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const page = await open(`${OVERVIEW}?g=${L}`);
+  t.after(() => page.close());
+  // What shows: the scroll, the rows open, and the row at the window's middle with its place.
+  const shows = () => {
+    const rows = [...document.querySelectorAll('.ch-row')];
+    const mid = rows.find((r) => r.getBoundingClientRect().bottom > innerHeight / 2);
+    return `${Math.round(scrollY)} open:${rows.filter((r) => r.classList.contains('expanded')).map((r) => rows.indexOf(r) + 1).join(',')} mid:${rows.indexOf(mid) + 1}@${Math.round(mid?.getBoundingClientRect().top ?? 0)}`;
+  };
+  await page.evaluate(`window.__shows = ${shows}`);
+  const OPEN = [5, 12, 40];
+  const settled = async () => {
+    await overviewSettles(page, L);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 60, null, { what: 'sixty rows' });
+  };
+  const tilesIn = () => until(page, (open) => open.every((n) => document.querySelectorAll(`.ch-row:nth-child(${n}) .ch-pages > .ov-page`).length === 1
+    && document.querySelector(`.ch-row:nth-child(${n}) .ch-pages`).style.minHeight === ''), OPEN, { what: 'the opened chapters\' tiles' });
+  const goTo = async (href, there) => {
+    await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); a.remove(); }, href);
+    await until(page, there, null, { what: href });
+  };
+  const tasks = () => !document.getElementById('ovContent') && !!document.getElementById('tkList');
+  await settled();
+  for (const n of OPEN) await page.evaluate((n) => document.querySelector(`.ch-row:nth-child(${n}) .ch-expand`).click(), n);
+  await tilesIn();
+  await page.evaluate(() => { scrollTo(0, 1500); window.__mark = 'kept'; });
+  await sleep(500);
+  const before = await page.evaluate(shows);
+  assert.match(before, /^1500 open:5,12,40 mid:\d+@-?\d+$/, 'left at 1500 with three chapters\' pages open, two of them above what is in view');
+  // Away and Back, twice: every frame as the page was left.
+  for (const round of [1, 2]) {
+    await goTo('/tasks', tasks);
+    await sleep(200);
+    const frames = await page.evaluate(() => new Promise((done) => {
+      const seen = [];
+      addEventListener('popstate', () => {
+        const tick = () => { seen.push(window.__shows()); if (seen.length < 40) requestAnimationFrame(tick); else done(seen); };
+        requestAnimationFrame(tick);
+      }, { once: true });
+      history.back();
+    }));
+    assert.deepEqual([...new Set(frames)], [before], `round ${round}: every one of forty frames as the page was left`);
+    await settled();
+    await tilesIn();
+    assert.equal(await page.evaluate(shows), before, `round ${round}: and once the tiles are in`);
+  }
+  // Arrived at anew, from Tasks by a link: another entry, no chapter open, at the top.
+  await goTo('/tasks', tasks);
+  await goTo(`${OVERVIEW}?g=${L}`, () => !!document.getElementById('ovContent') && !document.getElementById('tkList'));
+  await settled();
+  assert.match(await page.evaluate(shows), /^0 open: mid:/, 'a new visit: none open');
+  // And Back twice, to the visit left: as it was left still.
+  await page.goBack();
+  await until(page, tasks, null, { what: 'Tasks' });
+  await page.goBack();
+  await settled();
+  await tilesIn();
+  await sleep(300);
+  assert.equal(await page.evaluate(shows), before, 'the visit left, as it was left');
+  assert.equal(await kept(page), true, 'the same document throughout');
+  assert.deepEqual(page.problems, []);
+});
