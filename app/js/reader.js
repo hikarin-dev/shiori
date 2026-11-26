@@ -103,11 +103,13 @@ const SITE_ROOT = new URL('../../', import.meta.url);
 // `go(path)`: the way to another page of the app (`path` from the site's root: '' the library,
 // 'overview?g=…'), the page drawing the reader's own (the one page's: a change of route). `settings`:
 // what draws reader settings (show, update, hide, contains, escape, ownsKey: "Reader settings: what the
-// dialog is handed", below; the route's src/routes/reader/settings-store.ts). A start without either
-// throws.
-export function startReader({ go, settings }) {
+// dialog is handed", below; the route's src/routes/reader/settings-store.ts). `keys`: what draws the
+// keys list (show, hide, contains: setKeybindOpen; src/routes/reader/keys-store.ts). A start without
+// any of them throws.
+export function startReader({ go, settings, keys }) {
 if (typeof go !== 'function') throw new TypeError('startReader needs go(path), the way to the other pages of the app');
 if (typeof settings?.show !== 'function') throw new TypeError('startReader needs settings, the host that draws reader settings');
+if (typeof keys?.show !== 'function') throw new TypeError('startReader needs keys, the host that draws the keys list');
 const _rsWin = globalThis;
 const _rsAbort = new AbortController();
 const _rsSignal = _rsAbort.signal;
@@ -825,7 +827,10 @@ const viewToggle    = document.getElementById('viewToggle');   // translate ⇄ 
 const translateSeg  = document.getElementById('translateSeg');
 const studySeg      = document.getElementById('studySeg');
 const keybindBtn    = document.getElementById('keybindBtn');
-const keybindModal  = document.getElementById('keybindModal');
+// The keys list: whether it shows, and what draws it (startReader's `keys`: the one page's component,
+// beside the frame).
+let _keysOpen = false;
+const _keysHost = keys;
 const readerSettingsBtn = document.getElementById('readerSettingsBtn');
 // Reader settings: whether the dialog shows, and what draws it (startReader's `settings`: the one page's
 // component, beside the frame).
@@ -2639,11 +2644,25 @@ thumbResizeHandle.addEventListener('pointerdown', (e) => {
   thumbResizeHandle.addEventListener('pointerup', up, { signal: _rsSignal });
 }, { signal: _rsSignal });
 
+// The keys list shows through its host, handed the engine's way to close it. The keyboard goes back to
+// the button that opened it; a mouse leaves the focus nowhere.
 function setKeybindOpen(open) {
   if (open && _settingsOpen) setReaderSettingsOpen(false);   // one dialog at a time
-  keybindModal.classList.toggle('show', open);
   keybindBtn.classList.toggle('active', open);
+  if (open && !_keysOpen) {
+    _keysOpen = true;
+    _keysHost.show(_keysActions);
+  } else if (!open && _keysOpen) {
+    const focused = document.activeElement;
+    if (focused && _keysHost.contains(focused)) {
+      if (_focusByKeys) (readerNavLayout === 'side' ? snKeys : keybindBtn).focus();
+      else focused.blur();
+    }
+    _keysOpen = false;
+    _keysHost.hide();
+  }
 }
+const _keysActions = { close: () => setKeybindOpen(false) };
 
 // ── Header: pinned vs unpinned ──
 // Pinned: the bar is sticky and occupies its normal document space. Unpinned: it becomes a fixed
@@ -2768,7 +2787,7 @@ window.addEventListener('wheel', (e) => {
   if (readerPinned) return;
   if (!e.deltaY) return;
   // Scrolling inside a modal is not scrolling the pages.
-  if (propertiesOpen() || feedbackOpen() || keybindModal.classList.contains('show') || _settingsOpen) return;
+  if (propertiesOpen() || feedbackOpen() || _keysOpen || _settingsOpen) return;
   if (e.deltaY < 0) {
     if (!document.body.classList.contains('reader-nav-auto') && ++readerNavWheelUps >= READER_NAV_REVEAL_UNITS) {
       readerNavWheelUps = 0;
@@ -2934,7 +2953,7 @@ snThumbs.addEventListener('click', () => setThumbsOpen(!thumbsOpen), { signal: _
 _wireSpeedDrag(snAuto);
 _wireSpeedDrag(autoBtn);
 snSettings.addEventListener('click', () => setReaderSettingsOpen(!_settingsOpen), { signal: _rsSignal });
-snKeys.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')), { signal: _rsSignal });
+snKeys.addEventListener('click', () => setKeybindOpen(!_keysOpen), { signal: _rsSignal });
 snTop.addEventListener('click', _backToTop, { signal: _rsSignal });
 snFit.addEventListener('click', () => (readerFitMode === 'width' ? fitPageHeight() : fitPageWidth()), { signal: _rsSignal });
 snZoomOut.addEventListener('click', () => adjustPageZoom(-1), { signal: _rsSignal });
@@ -3088,7 +3107,7 @@ const _readerActing = () => _readerPointerHeld || performance.now() - _readerInp
 // Turned up over the pages (not over the thumbnails or a dialog, which scroll on their own, nor a
 // pinch-zoom), the wheel stops it at once; a touch dragged down by more than a little does too.
 const AUTO_TOUCH_BACK_PX = 12;
-const _ownScroller = (el) => !!el?.closest?.('#thumbStrip, #keybindModal, #snChapters') || _settingsHost.contains(el);
+const _ownScroller = (el) => !!el?.closest?.('#thumbStrip, #snChapters') || _keysHost.contains(el) || _settingsHost.contains(el);
 window.addEventListener('wheel', (e) => {
   if (_autoRaf && readerAutoPauseOnUp && e.deltaY < 0 && !e.ctrlKey && !_ownScroller(e.target)) setAutoScroll(false);
 }, { capture: true, passive: true, signal: _rsSignal });
@@ -3098,7 +3117,7 @@ window.addEventListener('touchmove', (e) => {
   if (_autoRaf && readerAutoPauseOnUp && !_ownScroller(e.target) && (e.touches[0]?.clientY ?? 0) - _touchY > AUTO_TOUCH_BACK_PX) setAutoScroll(false);
 }, { capture: true, passive: true, signal: _rsSignal });
 // The reader settings don't hold it up: their speed is easiest set watching it.
-const _autoWaits = () => document.hidden || keybindModal.classList.contains('show')
+const _autoWaits = () => document.hidden || _keysOpen
   || _chapterListOpen() || propertiesOpen() || feedbackOpen();
 
 function setAutoScroll(on) {
@@ -4805,11 +4824,8 @@ function _refreshBubbleLayers() {
   document.body.classList.toggle('study-bubbles-active', mode !== 'strip' && !!document.querySelector('.bubble-box'));
 }
 
-// Keybind modal
-keybindBtn.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')), { signal: _rsSignal });
-keybindModal.addEventListener('click', (e) => {
-  if (!e.target.closest('#keybindBox')) setKeybindOpen(false);
-}, { signal: _rsSignal });
+// The keys list's button
+keybindBtn.addEventListener('click', () => setKeybindOpen(!_keysOpen), { signal: _rsSignal });
 
 function _readerZoomScale() {
   if (readerFitMode === 'off') return Math.min(mode === 'strip' ? 1 : ZOOM_MAX, _pageZoom);
@@ -5200,9 +5216,9 @@ document.addEventListener('keydown', (e) => {
     _closeChapterList();
     return;
   }
-  if (keybindModal.classList.contains('show')) {
+  if (_keysOpen) {
     if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); setKeybindOpen(false); }
-    // Nothing in it takes focus, so scroll keys would otherwise move the pages behind it (Space on a
+    // Nothing in it scrolls by them, so scroll keys would otherwise move the pages behind it (Space on a
     // focused button still presses it).
     else if (e.key === ' ' ? !e.target.closest?.('button') : ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) e.preventDefault();
     return;
@@ -5258,12 +5274,12 @@ document.addEventListener('keydown', (e) => {
       });
       return;
     }
-    setKeybindOpen(!keybindModal.classList.contains('show'));
+    setKeybindOpen(!_keysOpen);
     return;
   }
   if (e.key === '?') {
     e.preventDefault();
-    setKeybindOpen(!keybindModal.classList.contains('show'));
+    setKeybindOpen(!_keysOpen);
     return;
   }
 
@@ -5365,6 +5381,7 @@ function _rsBeforeStop() {
   closeFeedback();                       // its dialogs, open or kept closed, and their previews' URLs
   closePageMenu();
   if (_settingsOpen) { _settingsOpen = false; _settingsHost.hide(); }
+  if (_keysOpen) { _keysOpen = false; _keysHost.hide(); }
   clearPageStatus();
   stopStudy();                           // reader-study.js: its listeners, layers and their URLs, records
   _rsEndPageNav();

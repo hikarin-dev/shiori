@@ -140,7 +140,8 @@ test("keys with reader settings open: each of the reader's keys does what it doe
   await until(page, async () => !(await import('/app/js/reader-properties.js')).propertiesOpen(), null, { what: 'page properties closed' });
   assert.equal(await isOpen(page), true, 'Escape closed page properties alone');
   await page.keyboard.press('?');
-  assert.deepEqual([await isOpen(page), await page.$eval('#keybindModal', (m) => m.classList.contains('show'))], [false, true], 'the keys list in their place');
+  await until(page, () => !!document.querySelector('[data-reader-part="keys"]'), null, { what: 'the keys list' });
+  assert.equal(await isOpen(page), false, 'the keys list in their place');
 });
 
 test('reader settings open on the tab last shown, focus on their close button; closed by the keyboard the focus goes back to their button, after a mouse nowhere', { skip: !chromePath() }, async (t) => {

@@ -140,7 +140,16 @@ test('at a fractional display scale the side controls and the reader dialogs sta
   await page.evaluate(() => localStorage.setItem('shiori-reader-nav', 'side'));
   await page.reload();
   await page.waitForFunction(() => document.body.classList.contains('reader-side-nav') && document.querySelector('#mainImg').naturalWidth > 0);
-  // Reader settings are drawn beside the frame by the one page, once opened (their button, then their box).
+  // Reader settings and the keys list are drawn beside the frame by the one page, once opened (their
+  // button, then their box).
+  const shortcuts = async () => {
+    await page.evaluate(() => document.getElementById('snKeys').click());
+    await page.waitForSelector('[data-reader-part="keys"]');
+    const at = await page.$eval('#keybindBox', (box) => { const { left, right } = box.getBoundingClientRect(); return [left, right]; });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-reader-part="keys"]'));
+    return at;
+  };
   const settings = async () => {
     await page.evaluate(() => document.getElementById('snSettings').click());
     await page.waitForSelector('[data-reader-part="settings"]');
@@ -151,13 +160,6 @@ test('at a fractional display scale the side controls and the reader dialogs sta
   };
   const edges = async () => ({ ...(await page.evaluate(() => {
     const rect = sel => document.querySelector(sel).getBoundingClientRect();
-    const open = (overlay, box) => {
-      document.querySelector(overlay).classList.add('show');
-      const { left, right } = rect(box);
-      document.querySelector(overlay).classList.remove('show');
-      return [left, right];
-    };
-    const [shortcutsLeft, shortcutsRight] = open('#keybindModal', '#keybindBox');
     // The rail across the top, centred: in the width the pages keep, a scrollbar beside them or not.
     const root = document.documentElement.dataset;
     [root.snPos, root.snAlign] = ['top', 'center'];
@@ -165,9 +167,9 @@ test('at a fractional display scale the side controls and the reader dialogs sta
     [root.snPos, root.snAlign] = ['right', 'start'];
     return {
       scrollbar: innerWidth > document.documentElement.clientWidth,
-      edges: { pill: rect('#snChapter').right, rail: rect('#snRail').right, topCentre, sideZoom: rect('#sideZoom').right, shortcutsLeft, shortcutsRight },
+      edges: { pill: rect('#snChapter').right, rail: rect('#snRail').right, topCentre, sideZoom: rect('#sideZoom').right },
     };
-  })), settings: await settings() });
+  })), settings: await settings(), shortcuts: await shortcuts() });
   await overflow(page, 'hidden');
   const short = await edges();
   await overflow(page, 'auto');
@@ -176,6 +178,8 @@ test('at a fractional display scale the side controls and the reader dialogs sta
   // Within a layout unit (1/64 px): what's left is rounding, not a shift.
   [short.edges.settingsLeft, short.edges.settingsRight] = short.settings;
   [tall.edges.settingsLeft, tall.edges.settingsRight] = tall.settings;
+  [short.edges.shortcutsLeft, short.edges.shortcutsRight] = short.shortcuts;
+  [tall.edges.shortcutsLeft, tall.edges.shortcutsRight] = tall.shortcuts;
   for (const [name, edge] of Object.entries(short.edges)) {
     assert.ok(Math.abs(edge - tall.edges[name]) < 1 / 64, `${name} moved from ${edge} to ${tall.edges[name]}`);
   }

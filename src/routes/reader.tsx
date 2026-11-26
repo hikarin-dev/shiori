@@ -1,8 +1,9 @@
 // reader.tsx — the reader as the one page draws it (at /reader?g=…, 1.3's page until 2026-11-26): its
 // frame, and the engine (app/js/reader.js) started in it. The engine and the chrome are the reader's
-// own, as on its page; what it asks the one page to draw (reader settings, the page's right-click menu,
-// page properties, the feedback dialog) is drawn beside the frame (./reader/parts.tsx), through hosts
-// made for each start: reader settings' is handed to the engine, the others registered for its modules.
+// own, as on its page; what it asks the one page to draw (reader settings, the keys list, the page's
+// right-click menu, page properties, the feedback dialog) is drawn beside the frame (./reader/parts.tsx),
+// through hosts made for each start: reader settings' and the keys list's are handed to the engine, the
+// others registered for its modules.
 //
 // The frame is the markup 1.3's page had in its body (./reader/frame.ts), drawn by React once and never
 // again: the engine owns everything inside it. Each start has a frame of its own: the route is keyed on
@@ -24,6 +25,7 @@ import { dismissSince, noticeMark } from '@/lib/notice-store';
 import { FRAME } from './reader/frame';
 import { ReaderParts, hostReaderParts } from './reader/parts';
 import { settingsHost } from './reader/settings-store';
+import { keysHost } from './reader/keys-store';
 import { setReaderNames, takeReaderNames } from './reader/names';
 
 type Go = (path: string) => void;
@@ -38,7 +40,7 @@ const ReaderFrame = memo(function ReaderFrame({ go }: { go: Go }) {
     applyTranslations(frame.current as unknown as Document);   // its words (1.3's page had boot.js fill them)
     const mark = noticeMark();
     const unhost = hostReaderParts();
-    const reader = startReader({ go, settings: settingsHost() });   // reader settings, drawn beside the frame
+    const reader = startReader({ go, settings: settingsHost(), keys: keysHost() });   // reader settings and the keys list, drawn beside the frame
     return () => {
       reader.stop();   // (it closes what it asked the parts to show)
       unhost();

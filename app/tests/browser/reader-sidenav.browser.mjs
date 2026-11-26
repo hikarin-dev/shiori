@@ -730,7 +730,7 @@ test('auto-play waits while a dialog is open, and goes on once it closes; not th
   await page.keyboard.press('k');
   await settle(300);
   await page.keyboard.press('?');   // the shortcuts
-  await page.waitForSelector('#keybindModal.show');
+  await page.waitForSelector('[data-reader-part="keys"]');
   const y = await page.evaluate(() => scrollY);
   await settle(500);
   assert.equal(await page.evaluate(() => scrollY), y, 'it waits behind the shortcuts');
@@ -1045,7 +1045,8 @@ test("with the reader settings open the reader's keys work, but not the keys the
   assert.equal(await isOn(page, '#snAuto'), true, 'K plays, the slider focused');
   await page.keyboard.press('k');
   await page.keyboard.press('?');
-  assert.deepEqual([await state().then(s => s.open), await page.$eval('#keybindModal', m => m.classList.contains('show'))], [false, true], 'the shortcuts take the settings\' place');
+  await page.waitForSelector('[data-reader-part="keys"]');
+  assert.equal(await state().then(s => s.open), false, 'the shortcuts take the settings\' place');
 });
 
 test('the reader settings keep their top from tab to tab and end with the tab shown, the most used first', { skip: !chromePath() }, async t => {

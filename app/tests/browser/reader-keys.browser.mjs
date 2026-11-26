@@ -14,11 +14,11 @@ let server, origin, browser;
 
 // What draws the list.
 const S = {
-  open: '#keybindModal.show',
+  open: '[data-reader-part="keys"]',
   box: '#keybindBox',
-  section: '.kb-section',
-  row: '.kb-row',
-  desc: '.kb-desc',
+  section: '[data-kb="section"]',
+  row: '[data-kb="row"]',
+  desc: '[data-kb="desc"]',
   key: 'kbd',
 };
 

@@ -77,7 +77,7 @@ const state = (page) => page.evaluate(async () => {
     mode: ['singleView', 'doubleView', 'stripView'].find((id) => document.getElementById(id).classList.contains('active')),
     thumbs: document.body.classList.contains('thumbs-open'), study: document.body.classList.contains('study-mode'),
     controls: document.documentElement.classList.contains('reader-controls-hidden') || document.body.classList.contains('reader-controls-hidden'),
-    keys: document.getElementById('keybindModal').classList.contains('show'), scrollY: Math.round(scrollY),
+    keys: !!document.querySelector('[data-reader-part="keys"]'), scrollY: Math.round(scrollY),
     focus: a === document.body || !a ? 'body' : (a.getAttribute('aria-label') || a.textContent.trim().split('\n')[0]).slice(0, 30),
   };
 });

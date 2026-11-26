@@ -71,9 +71,7 @@
     "div#scrubSegments",
     "div#scrubView",
     "div#scrubTip",
-    "button#scrollTopBtn",
-    "div#keybindModal",
-    "div#keybindBox"
+    "button#scrollTopBtn"
   ],
   "parts": [
     "loadingScreen",
@@ -88,7 +86,6 @@
     "thumbResizeHandle",
     "thumbStrip",
     "bottombar",
-    "scrollTopBtn",
-    "keybindModal"
+    "scrollTopBtn"
   ]
 }

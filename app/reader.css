@@ -786,46 +786,6 @@ body.thumb-dragging * {
 #bottombar[data-position="left"] .scrub-view + .scrub-view,
 #bottombar[data-position="right"] .scrub-view + .scrub-view { border-left: 0; border-top: 1px solid var(--reader-background); }
 
-/* ── Keybind modal ── */
-/* The shortcuts modal holds the pages still behind it without hiding the page's scrollbar: as a scroll
-   container that contains overscroll, no wheel or swipe started over it reaches the pages. It reserves
-   the room of a scrollbar that isn't there, as the body does, so its box stays put when a change behind
-   it brings the scrollbar or takes it away. */
-#keybindModal {
-  display: none; position: fixed; inset: 0; z-index: 400;
-  background: var(--backdrop);
-  align-items: center; justify-content: center;
-  padding-right: var(--page-scrollbar-gap);
-  overflow: hidden; overscroll-behavior: contain;
-}
-#keybindModal.show { display: flex; }
-#keybindBox {
-  background: var(--popover); border: 1px solid var(--input);
-  border-radius: 12px; padding: 20px 24px;
-  min-width: 300px; max-width: 420px; width: 90%;
-}
-.kb-heading {
-  font-size: 12px; font-weight: 700; color: var(--foreground);
-  margin-bottom: 14px;
-}
-.kb-section {
-  font-size: 9px; color: var(--muted-foreground); text-transform: uppercase;
-  letter-spacing: 1px; margin: 12px 0 5px;
-}
-.kb-row {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border);
-  font-size: 11px;
-}
-.kb-row:last-child { border-bottom: none; }
-.kb-desc { color: var(--muted-foreground); }
-.kb-keys { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
-.kb-key {
-  background: var(--reader-background); border: 1px solid var(--border);
-  border-radius: 4px; padding: 2px 6px;
-  font-size: 10px; color: var(--foreground); font-family: inherit; white-space: nowrap;
-}
-
 /* ── The status line of a page's translation ── */
 .page-status {
   position: fixed; left: 50%; bottom: 28px; z-index: 420; max-width: min(520px, calc(100vw - 32px));
