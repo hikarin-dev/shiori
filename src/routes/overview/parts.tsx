@@ -50,6 +50,21 @@ export function createGridEngine(deps: Omit<PageThumbDeps, 'window'>) {
 }
 export type GridEngine = ReturnType<typeof createGridEngine>;
 
+// A grid's size as it last stood with its tiles in, by gallery. Its tiles are listed from storage, a
+// moment after the grid is drawn; a grid drawn again at the width it had takes the height it had until
+// they are back, so the page is as tall as it was left in its first frame: coming Back to it, the
+// browser returns to the scroll it had (it does so once, as the page is drawn, and a shorter page
+// stopped it short, the tiles then pushing what was in view away).
+const stood = new Map<string, { width: number; height: number }>();
+const grids = new WeakMap<Element, string>();
+const sizes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => {
+  for (const { target, borderBoxSize } of entries) {
+    const gid = grids.get(target);
+    const [box] = borderBoxSize;
+    if (gid && box && box.blockSize > 0 && target.firstElementChild) stood.set(gid, { width: box.inlineSize, height: box.blockSize });
+  }
+});
+
 // A page grid: an element React draws once and leaves alone, its tiles the engine's. Brought up to date
 // whenever `version` changes while `open` (the gallery's record: pages came or went), and let go of
 // when it leaves.
@@ -57,7 +72,22 @@ export const PageGrid = memo(function PageGrid({ engine, gid, open = true, versi
   engine: GridEngine; gid: string; open?: boolean; version: unknown; className: string; id?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (open) engine.get().syncPageGrid(ref.current, gid).catch(() => {}); }, [engine, gid, open, version]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!open || !el) return;
+    // Its tiles in (or its "no pages"), the height is its own again.
+    const own = () => { if (el.firstElementChild) el.style.minHeight = ''; };
+    engine.get().syncPageGrid(el, gid).then(own, () => { el.style.minHeight = ''; });
+  }, [engine, gid, open, version]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !open) return undefined;
+    const was = stood.get(gid);
+    if (was && !el.firstElementChild && Math.abs(el.getBoundingClientRect().width - was.width) < 0.5) el.style.minHeight = `${was.height}px`;
+    grids.set(el, gid);
+    sizes?.observe(el);
+    return () => { sizes?.unobserve(el); };
+  }, [gid, open]);
   useLayoutEffect(() => {
     const el = ref.current;
     return () => { if (el) engine.current()?.releasePageTiles(el); };

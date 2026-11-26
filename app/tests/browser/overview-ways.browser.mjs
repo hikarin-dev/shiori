@@ -349,3 +349,74 @@ test('a task\'s title and cover on Tasks open the overview with no load; the add
   assert.deepEqual(arrived, [['.tk-title', ['/overview', true, 'overview']], ['.tk-thumb', ['/overview', true, 'overview']], ['loaded', ['/overview', false, 'overview']]]);
   assert.deepEqual(page.problems, []);
 });
+
+// A gallery's own overview: its page grid's tiles are listed from storage a moment after the page is
+// drawn. Coming Back, the grid stands at the height it had until they are in, so the page is as tall as
+// it was left in its first frame and the browser's return to the scroll lands (before: the page a grid
+// short, the scroll stopped short of where it was, then pushed on as the tiles came:
+// plans/frontend-react-probes/8c/back-scroll.mjs). The gallery is made here, so the library the tests
+// above are held to is theirs as it was.
+test('Back to a gallery\'s overview finds it as tall as it was left, its page grid\'s place held: the scroll is kept in every frame', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const G = String(BASE + 300), PAGES = 24;
+  const page = await open('/tasks', { viewport: { width: 1280, height: 420 } });
+  t.after(() => page.close());
+  await page.evaluate(async ({ gid, pages }) => {
+    const api = await import('/app/js/api.js');
+    const c = new OffscreenCanvas(400, 570), x = c.getContext('2d');
+    await api.meta.put({ galleryId: gid, title: { english: 'Pages', japanese: '', pretty: '' }, tags: [], numPages: pages });
+    for (let p = 1; p <= pages; p++) { x.fillStyle = `hsl(${p * 15} 60% 50%)`; x.fillRect(0, 0, 400, 570); await api.pages.put(gid, p, await c.convertToBlob({ type: 'image/png' })); }
+  }, { gid: G, pages: PAGES });
+  await page.goto(`${origin}${OVERVIEW}?g=${G}`, { waitUntil: 'load' });
+  const drawn = async () => {
+    await overviewSettles(page, G);
+    await until(page, (n) => document.querySelectorAll('#ovPages > .ov-page').length === n, PAGES, { what: 'the grid\'s tiles' });
+  };
+  await drawn();
+  await page.evaluate(() => { window.__mark = 'kept'; });
+  // Away by a change of route (a link, as the app's own are followed), and Back: the scroll in each of
+  // the forty frames from the Back on.
+  const awayAndBack = async () => {
+    await page.evaluate(() => { const a = Object.assign(document.createElement('a'), { href: '/tasks' }); document.body.append(a); a.click(); a.remove(); });
+    await until(page, () => !document.getElementById('ovContent') && !!document.getElementById('tkList'), null, { what: 'Tasks' });
+    await sleep(200);
+    const frames = await page.evaluate(() => new Promise((done) => {
+      const seen = [];
+      addEventListener('popstate', () => {
+        const tick = () => { seen.push(Math.round(scrollY)); if (seen.length < 40) requestAnimationFrame(tick); else done(seen); };
+        requestAnimationFrame(tick);
+      }, { once: true });
+      history.back();
+    }));
+    await drawn();
+    await sleep(300);
+    return { frames: [...new Set(frames)], after: await page.evaluate(() => ({ scroll: Math.round(scrollY), height: document.documentElement.scrollHeight, held: document.getElementById('ovPages').style.minHeight })) };
+  };
+  // Three places: one the page holds without its grid, one past that (a page a grid short stops short of
+  // it, and the tiles coming in then push what is in view to the page's end), and the end.
+  const { short, end } = await page.evaluate(() => {
+    const height = document.documentElement.scrollHeight;
+    return { short: height - document.getElementById('ovPages').offsetHeight - innerHeight, end: height - innerHeight };
+  });
+  assert.ok(short > 150 && end - short > 300, `the page without its grid scrolls ${short}px, with it ${end}px`);
+  for (const to of [short - 100, short + 150, end]) {
+    await page.evaluate((to) => scrollTo(0, to), to);
+    await sleep(300);
+    const before = await page.evaluate(() => ({ scroll: Math.round(scrollY), height: document.documentElement.scrollHeight }));
+    assert.equal(before.scroll, Math.round(to));
+    const back = await awayAndBack();
+    assert.deepEqual(back, { frames: [before.scroll], after: { scroll: before.scroll, height: before.height, held: '' } }, `scrolled to ${to}: every frame at the scroll it was left at, the grid's height its own again`);
+  }
+  assert.equal(await kept(page), true, 'the same document throughout');
+  // Another width meanwhile: the height it had is not this width's, and the grid takes none.
+  await page.evaluate(() => { const a = Object.assign(document.createElement('a'), { href: '/tasks' }); document.body.append(a); a.click(); a.remove(); });
+  await until(page, () => !document.getElementById('ovContent') && !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  await page.setViewport({ width: 900, height: 420 });
+  const held = await page.evaluate(() => new Promise((done) => {
+    addEventListener('popstate', () => done(document.getElementById('ovPages')?.style.minHeight ?? null), { once: true });   // drawn by now: the app heard first
+    history.back();
+  }));
+  assert.equal(held, '', 'no height held at another width');
+  await drawn();
+  assert.deepEqual(page.problems, []);
+});

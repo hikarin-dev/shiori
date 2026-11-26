@@ -244,28 +244,42 @@ test('every way out of the reader is a change of route, and Back finds the reade
   assert.equal(await stayed(), true);
 });
 
-// A series' overview: its rows are drawn with it. (A gallery's page grid is drawn after the overview's
-// first frame, so the browser's own restoring of the scroll on Back finds the page shorter than it was;
-// so it is coming Back to that overview from any other route of the one page, Tasks or Settings alike:
-// the overview's, not the reader's. plans/frontend-react-probes/8c/back-scroll.mjs.)
+// A series' overview (its rows are drawn with it) and a gallery's own (its page grid's tiles come a moment
+// after it is drawn: the grid stands at the height it had until they are in, overview-ways.browser).
 test('Back from the reader shows the overview as it was left, its scroll kept', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open(t, `/overview?g=${SERIES[0]}`, settingsFor({ nav: 'top', mode: 'strip' }));
-  await page.setViewport({ width: 1280, height: 300 });
-  await until(page, () => document.querySelectorAll('.ch-row').length === 3 && document.documentElement.scrollHeight > innerHeight + 150, null, { what: 'the overview, taller than the window' });
-  await sleep(500);
-  await page.evaluate(() => { scrollTo(0, 150); window.__stayed = true; });
-  await sleep(300);
-  const before = await page.evaluate(() => ({ y: scrollY, title: document.title, text: document.getElementById('ovContent').innerText }));
-  await follow(page, `/reader-next?g=${SERIES[1]}&page=1`);
-  await readerDrawn(page);
-  for (let i = 0; i < 3; i++) { await page.mouse.wheel({ deltaY: 900 }); await sleep(150); }
-  await page.goBack();
-  await until(page, () => !document.querySelector('.reader-frame') && !!document.querySelector('#root main, #ovContent .ov-hero, #settingsNav, #tkList'), null, { what: 'the overview' });
-  await sleep(600);
-  const now = await page.evaluate(() => ({ y: scrollY, title: document.title, text: document.getElementById('ovContent').innerText }));
-  assert.deepEqual(now, before);
-  assert.equal(await page.evaluate(() => window.__stayed), true, 'the same document');
+  // [the overview, its scroll, the gallery read, what the overview has drawn]: the gallery's scroll is one
+  // the page cannot hold without its grid.
+  const cases = [
+    [SERIES[0], 150, SERIES[1], () => document.querySelectorAll('.ch-row').length === 3],
+    [SINGLE, 500, SINGLE, () => document.querySelectorAll('#ovPages > .ov-page').length === 10],
+  ];
+  for (const [g, y, read, there] of cases) {
+    const page = await open(t, `/overview?g=${g}`, settingsFor({ nav: 'top', mode: 'strip' }));
+    await page.setViewport({ width: 1280, height: 300 });
+    await until(page, there, null, { what: 'the overview' });
+    await until(page, (y) => document.documentElement.scrollHeight > innerHeight + y, y, { what: 'the overview, taller than the window' });
+    // Its figures in (a library just written is still being measured): its words still for a second.
+    await until(page, () => {
+      const text = document.getElementById('ovContent').innerText, now = performance.now();
+      if (text !== window.__text) { window.__text = text; window.__textSince = now; return false; }
+      return now - window.__textSince >= 1000;
+    }, null, { what: 'the words of the overview still' });
+    await page.evaluate((y) => { scrollTo(0, y); window.__stayed = true; }, y);
+    await sleep(300);
+    const before = await page.evaluate(() => ({ y: scrollY, title: document.title, text: document.getElementById('ovContent').innerText }));
+    assert.equal(before.y, y);
+    await follow(page, `/reader-next?g=${read}&page=1`);
+    await readerDrawn(page);
+    for (let i = 0; i < 3; i++) { await page.mouse.wheel({ deltaY: 900 }); await sleep(150); }
+    await page.goBack();
+    await until(page, () => !document.querySelector('.reader-frame') && !!document.querySelector('#root main, #ovContent .ov-hero, #settingsNav, #tkList'), null, { what: 'the overview' });
+    await until(page, there, null, { what: 'the overview again' });
+    await sleep(600);
+    const now = await page.evaluate(() => ({ y: scrollY, title: document.title, text: document.getElementById('ovContent').innerText }));
+    assert.deepEqual(now, before);
+    assert.equal(await page.evaluate(() => window.__stayed), true, 'the same document');
+  }
 });
 
 test('another gallery is another frame and another engine; the address\'s own chapter moves keep the frame', async (t) => {
