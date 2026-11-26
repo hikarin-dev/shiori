@@ -27,7 +27,7 @@ if (_lang !== 'en') { try { await _load(_lang); } catch { _lang = 'en'; } }
 // The page says its language (figures are written in it: format.js; a browser picks letter shapes and
 // breaks words by it), from its start. (1.3's pages each filled their own markup as they started,
 // which set it; the one page fills none, and said "en" in every language until one was changed.)
-document.documentElement.lang = _lang;
+if (typeof document !== 'undefined') document.documentElement.lang = _lang;   // (a test may load this with no page)
 
 export function getLang() { return _lang; }
 
