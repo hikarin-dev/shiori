@@ -17,12 +17,12 @@ test('Electron shares Chromium native defaults and can enable and disable the cu
   const server = createServer(async (req, res) => {
     if (req.url === '/fixture') {
       res.setHeader('Content-Type', 'text/html');
-      res.end(`<!doctype html><link rel="icon" href="data:,"><link rel="stylesheet" href="/base.css">
+      res.end(`<!doctype html><link rel="icon" href="data:,"><link rel="stylesheet" href="/scrollbars.css">
         <style>body{min-height:4000px}#panel{width:200px;height:200px;overflow:auto}</style>
         <body><div id="panel"><div style="height:2000px"></div></div>
         <script type="module" src="/scrollbar.js"></script>`);
-    } else if (req.url === '/base.css' || req.url === '/scrollbar.js') {
-      const file = req.url === '/base.css' ? '../../app/base.css' : '../../app/js/scrollbar.js';
+    } else if (req.url === '/scrollbars.css' || req.url === '/scrollbar.js') {
+      const file = req.url === '/scrollbars.css' ? '../../app/tests/fixtures/scrollbars.css' : '../../app/js/scrollbar.js';
       res.setHeader('Content-Type', req.url.endsWith('.css') ? 'text/css' : 'text/javascript');
       res.end(await readFile(new URL(file, import.meta.url)));
     } else if (req.url.startsWith('/vendor/overlayscrollbars/')) {

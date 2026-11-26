@@ -1,5 +1,5 @@
 /* document.css — the document's defaults: how an element computes where nothing else gives it a
-   style. They are today's — app/base.css and the browser's own — not Tailwind's base styles, which
+   style. They are 1.3's — its base.css and the browser's own — not Tailwind's base styles, which
    this app does not load. So a bare element on the one page computes as it did on a 1.3 page (line
    height normal, a heading's size and weight, a link's colour, a list's markers, an image inline).
    Where this file takes something else, it says why. */

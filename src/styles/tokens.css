@@ -5,7 +5,7 @@
    - Colours are custom properties on :root under shadcn's names where shadcn has one (--background,
      --primary, --muted-foreground…), under a name of their own otherwise (--warning, --muted-dim…).
      Each is mapped to Tailwind below (bg-primary, text-muted-foreground, border-input…).
-     Two names mean something else than in app/base.css, and must not be mixed up:
+     Two names mean something else than in 1.3's base.css, and must not be mixed up:
        Shiori's --accent (the brand colour)    is --primary here; --accent here is the hover surface.
        Shiori's --muted (secondary text)       is --muted-foreground here; --muted here is a surface.
    - Every other token is a Tailwind theme variable, named by its Tailwind namespace and its value or

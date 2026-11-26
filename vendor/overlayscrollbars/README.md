@@ -5,4 +5,4 @@ License: MIT (see LICENSE).
 
 The module, source map and stylesheet are unmodified. The app enables the
 ClickScrollPlugin and supplies its own theme and arrow buttons in
-app/js/scrollbar.js and app/base.css. Only the experimental setting installs it.
+app/js/scrollbar.js and src/styles/scrollbars.css. Only the experimental setting installs it.

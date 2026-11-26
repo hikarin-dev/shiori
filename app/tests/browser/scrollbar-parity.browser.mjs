@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
-import { startServer, chromePath, openPage } from './harness.mjs';
+import { startServer, chromePath, openPage, SCROLLBARS_SHEET, scrollbarsSheet } from './harness.mjs';
 
 let server, origin, browser;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -18,8 +18,9 @@ async function fixture(t, integrated) {
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
   page.removeAllListeners('request');
   page.on('request', request => {
+    if (scrollbarsSheet(request, origin)) return;
     if (request.url() === `${origin}/parity-fixture`) request.respond({ status: 200, contentType: 'text/html',
-      body: `<!doctype html><link rel="icon" href="data:,"><link rel="stylesheet" href="/app/base.css">
+      body: `<!doctype html><link rel="icon" href="data:,"><link rel="stylesheet" href="${SCROLLBARS_SHEET}">
         <style>body{height:18000px}.reference.os-scrollbar{position:fixed;--os-size:12px;
           --os-padding-axis:12px;--os-padding-perpendicular:0px;--os-handle-min-size:20px;
           --os-handle-perpendicular-size:6px;--os-handle-perpendicular-size-hover:6px;

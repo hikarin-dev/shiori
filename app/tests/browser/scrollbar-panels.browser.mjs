@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
-import { startServer, chromePath, openPage } from './harness.mjs';
+import { startServer, chromePath, openPage, SCROLLBARS_SHEET, scrollbarsSheet } from './harness.mjs';
 
 let server, origin, browser;
 before(async () => {
@@ -19,11 +19,12 @@ async function fresh(t, fixture = false) {
   if (fixture) {
     page.removeAllListeners('request');
     page.on('request', request => {
+      if (scrollbarsSheet(request, origin)) return;
       if (request.url() === origin + '/panel-fixture') request.respond({ status: 200, contentType: 'text/html',
-        // The scrollbars' fixture sheet (base.css) and the reader's, with the reader's mark.
+        // The scrollbars' fixture sheet and the reader's, with the reader's mark.
         body: '<!doctype html><html data-reader><link rel="icon" href="data:,">' +
-          ['base', 'reader']
-            .map(name => `<link rel="stylesheet" href="/app/${name}.css">`).join('') +
+          [SCROLLBARS_SHEET, '/app/reader.css']
+            .map(href => `<link rel="stylesheet" href="${href}">`).join('') +
           '<body><script type="module" src="/app/js/scrollbar.js"></script>' });
       else if (request.url().startsWith(origin) || request.url().startsWith('data:')) request.continue();
       else request.abort();

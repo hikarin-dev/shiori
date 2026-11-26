@@ -1,6 +1,6 @@
 // study-fonts.ts — the faces study mode draws with (the comic lettering the translation renderer
-// typesets in, and the two source-text faces), from the app's own files (app/fonts/), as app/base.css
-// declares them for the pages with a file of their own: a copy installed on the computer wins. Added
+// typesets in, and the two source-text faces), from the app's own files (app/fonts/): a copy installed
+// on the computer wins. Added
 // to the page once; nothing is downloaded until something draws in one, or load() asks for it.
 import { siteRoot } from '../entry';
 

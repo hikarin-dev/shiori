@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
-import { startServer, chromePath, openPage } from './harness.mjs';
+import { startServer, chromePath, openPage, SCROLLBARS_SHEET, scrollbarsSheet } from './harness.mjs';
 
 let server, origin, browser;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -198,8 +198,9 @@ test('a scrollbar appears when page growth creates overflow, then fades normally
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
   page.removeAllListeners('request');
   page.on('request', (request) => {
+    if (scrollbarsSheet(request, origin)) return;
     if (request.url() === `${origin}/scrollbar-fixture`) request.respond({ status: 200, contentType: 'text/html',
-      body: '<!doctype html><link rel="icon" href="/icons/icon16.png"><link rel="stylesheet" href="/app/base.css"><body><div>Short page</div><script type="module" src="/app/js/scrollbar.js"></script>' });
+      body: `<!doctype html><link rel="icon" href="/icons/icon16.png"><link rel="stylesheet" href="${SCROLLBARS_SHEET}"><body><div>Short page</div><script type="module" src="/app/js/scrollbar.js"></script>` });
     else if (request.url().startsWith(origin)) request.continue();
     else request.abort();
   });

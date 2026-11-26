@@ -1,6 +1,6 @@
 /* tooltip.css — the app's one tooltip (app/js/tooltip.js, started once by the app): one line, or a
    first line with dimmer lines under it; "label  value" rows, and a short badge that can open the tip
-   or a row. Carried over from app/base.css as it is, on the new token names. */
+   or a row. Carried over from 1.3's base.css as it was, on the new token names. */
 @layer components {
   .shiori-tip {
     position: fixed; left: 0; top: 0; z-index: var(--z-index-tooltip);

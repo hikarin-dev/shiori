@@ -1,7 +1,7 @@
 /* scrollbars.css — the page's scrollbars (app/js/scrollbar.js, which the start-up runs once). The
    browser's own by default, in the app's colours; drawn by scrollbar.js, as Firefox draws them on
    Windows 11, when Settings → Experimental asks for it (Chromium only). Carried over from
-   app/base.css as it is, on the new token names. */
+   1.3's base.css as it was, on the new token names. */
 @import "../../vendor/overlayscrollbars/overlayscrollbars.min.css" layer(components);
 
 @layer components {

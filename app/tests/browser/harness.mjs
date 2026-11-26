@@ -62,6 +62,17 @@ function readerEntry(reader) {
   return readFileSync(join(builtSite(), 'app', 'js', 'reader.js'), 'utf8') + READER_ENTRY_TAIL[reader];
 }
 
+// The stylesheet of the bare pages the scrollbar tests draw app/js/scrollbar.js on (app/tests/fixtures/
+// scrollbars.css), at an address of the test server's origin: a page links SCROLLBARS_SHEET, and its
+// request handler answers it with scrollbarsSheet(request, origin) (true when it did).
+export const SCROLLBARS_SHEET = '/scrollbars.css';
+const scrollbarsCss = readFileSync(new URL('../fixtures/scrollbars.css', import.meta.url), 'utf8');
+export function scrollbarsSheet(request, origin) {
+  if (request.url() !== origin + SCROLLBARS_SHEET) return false;
+  request.respond({ status: 200, contentType: 'text/css', body: scrollbarsCss });
+  return true;
+}
+
 // The one page's own document with `sheets` linked after its stylesheet (openPage's `onePage`).
 export function onePageWith(sheets) {
   const html = readFileSync(join(builtSite(), 'index.html'), 'utf8');

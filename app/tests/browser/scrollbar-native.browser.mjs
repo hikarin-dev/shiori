@@ -2,7 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
-import { startServer, chromePath, openPage } from './harness.mjs';
+import { startServer, chromePath, openPage, SCROLLBARS_SHEET, scrollbarsSheet } from './harness.mjs';
 
 let server, origin, browser;
 before(async () => {
@@ -20,8 +20,9 @@ async function fresh(t, route = '/settings') {
   if (route === '/scrollbar-fixture') {
     page.removeAllListeners('request');
     page.on('request', request => {
+      if (scrollbarsSheet(request, origin)) return;
       if (request.url() === origin + route) request.respond({ status: 200, contentType: 'text/html',
-        body: '<!doctype html><link rel="icon" href="/icons/icon16.png"><link rel="stylesheet" href="/app/base.css"><body><script type="module" src="/app/js/scrollbar.js"></script>' });
+        body: `<!doctype html><link rel="icon" href="/icons/icon16.png"><link rel="stylesheet" href="${SCROLLBARS_SHEET}"><body><script type="module" src="/app/js/scrollbar.js"></script>` });
       else if (request.url().startsWith(origin)) request.continue();
       else request.abort();
     });
