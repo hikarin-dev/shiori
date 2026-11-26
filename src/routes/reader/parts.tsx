@@ -5,24 +5,37 @@
 // and taken away after the reader has stopped, whose stop closes each part. A part's code is fetched the
 // first time it is asked for: a reader nobody right-clicks never loads the menu, nor one nobody reports
 // a bubble from the feedback dialog.
-import { lazy, Suspense, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ComponentType } from 'react';
 import * as menu from './page-menu-store';
 import * as properties from './properties-store';
 import * as feedback from './feedback-store';
 
-const PageMenu = lazy(() => import('./page-menu'));
-const PageProperties = lazy(() => import('./properties'));
-const Feedback = lazy(() => import('./feedback'));
+// A part's component, fetched once it is first asked for and drawn as soon as it has come. (Not
+// React.lazy: a component that suspends is revealed no sooner than 300 ms after (React's throttling of
+// Suspense), which made a first right-click's menu wait about a third of a second.)
+function usePart(asked: boolean, load: () => Promise<{ default: ComponentType }>) {
+  const [part, setPart] = useState<{ Part: ComponentType } | null>(null);
+  useEffect(() => {
+    if (!asked || part) return;
+    let live = true;
+    void load().then((m) => { if (live) setPart({ Part: m.default }); });
+    return () => { live = false; };
+  }, [asked, part, load]);
+  return part?.Part ?? null;
+}
+const loadMenu = () => import('./page-menu');
+const loadProperties = () => import('./properties');
+const loadFeedback = () => import('./feedback');
 
 export function ReaderParts() {
-  const menuAsked = useSyncExternalStore(menu.subscribe, menu.asked);
-  const propertiesAsked = useSyncExternalStore(properties.subscribe, properties.asked);
-  const feedbackAsked = useSyncExternalStore(feedback.subscribe, feedback.asked);
+  const PageMenu = usePart(useSyncExternalStore(menu.subscribe, menu.asked), loadMenu);
+  const PageProperties = usePart(useSyncExternalStore(properties.subscribe, properties.asked), loadProperties);
+  const Feedback = usePart(useSyncExternalStore(feedback.subscribe, feedback.asked), loadFeedback);
   return (
     <>
-      <Suspense fallback={null}>{menuAsked && <PageMenu />}</Suspense>
-      <Suspense fallback={null}>{propertiesAsked && <PageProperties />}</Suspense>
-      <Suspense fallback={null}>{feedbackAsked && <Feedback />}</Suspense>
+      {PageMenu && <PageMenu />}
+      {PageProperties && <PageProperties />}
+      {Feedback && <Feedback />}
     </>
   );
 }
