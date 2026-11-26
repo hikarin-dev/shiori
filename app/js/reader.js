@@ -102,7 +102,7 @@ const SITE_ROOT = new URL('../../', import.meta.url);
 // frames, observers, workers and object URLs are shadowed here so each is known and released by stop.
 // `go(path)`: the way to another page of the app (`path` from the site's root: '' the library,
 // 'overview?g=…'), the page drawing the reader's own (the one page's: a change of route).
-export function startReader({ go }) {
+export function startReader({ go, settings }) {
 if (typeof go !== 'function') throw new TypeError('startReader needs go(path), the way to the other pages of the app');
 const _rsWin = globalThis;
 const _rsAbort = new AbortController();
@@ -823,30 +823,10 @@ const studySeg      = document.getElementById('studySeg');
 const keybindBtn    = document.getElementById('keybindBtn');
 const keybindModal  = document.getElementById('keybindModal');
 const readerSettingsBtn = document.getElementById('readerSettingsBtn');
-const readerSettingsModal = document.getElementById('readerSettingsModal');
-const readerSettingsBox = document.getElementById('readerSettingsBox');
-const readerSettingsClose = document.getElementById('readerSettingsClose');
-const readerCoverOffsetInput   = document.getElementById('readerCoverOffset');
-const readerDebugLoadedInput   = document.getElementById('readerDebugLoaded');
-const readerGap = document.getElementById('readerGap');
-const readerGapValue = document.getElementById('readerGapValue');
-const readerAutoScrollInput = document.getElementById('readerAutoScroll');
-const readerAutoScrollValue = document.getElementById('readerAutoScrollValue');
-const readerDimInput = document.getElementById('readerDim');
-const readerDimValue = document.getElementById('readerDimValue');
-const readerZoomOut = document.getElementById('readerZoomOut');
-const readerZoomIn = document.getElementById('readerZoomIn');
-const readerZoomValue = document.getElementById('readerZoomValue');
-const readerOverviewInput    = document.getElementById('readerOverview');
-const readerStripFlowInput   = document.getElementById('readerStripFlow');
-const readerTransitionsInput = document.getElementById('readerTransitions');
-const readerPauseOnUpInput   = document.getElementById('readerPauseOnUp');
-const readerSmoothScrollInput = document.getElementById('readerSmoothScroll');
-const readerFuriganaInput    = document.getElementById('readerFurigana');
-const readerStudyFontSelect  = document.getElementById('readerStudyFont');
-const readerStudyTextGroup   = document.getElementById('readerStudyTextGroup');
-const readerNavPlaceGroup    = document.getElementById('readerNavPlaceGroup');
-const rsPicker      = document.getElementById('rsPicker');
+// Reader settings: whether the dialog shows, and what draws it (startReader's `settings`; the frame's
+// own markup until the one page draws it).
+let _settingsOpen = false;
+const _settingsHost = settings ?? _frameSettings();
 const readerPinBtn  = document.getElementById('readerPinBtn');
 const tbGallery     = document.getElementById('tbGallery');
 const tbMeta        = document.getElementById('tbMeta');
@@ -2656,7 +2636,7 @@ thumbResizeHandle.addEventListener('pointerdown', (e) => {
 }, { signal: _rsSignal });
 
 function setKeybindOpen(open) {
-  if (open && readerSettingsModal.classList.contains('show')) setReaderSettingsOpen(false);   // one dialog at a time
+  if (open && _settingsOpen) setReaderSettingsOpen(false);   // one dialog at a time
   keybindModal.classList.toggle('show', open);
   keybindBtn.classList.toggle('active', open);
 }
@@ -2784,8 +2764,7 @@ window.addEventListener('wheel', (e) => {
   if (readerPinned) return;
   if (!e.deltaY) return;
   // Scrolling inside a modal is not scrolling the pages.
-  if (propertiesOpen() || feedbackOpen() || keybindModal.classList.contains('show')
-      || readerSettingsModal.classList.contains('show')) return;
+  if (propertiesOpen() || feedbackOpen() || keybindModal.classList.contains('show') || _settingsOpen) return;
   if (e.deltaY < 0) {
     if (!document.body.classList.contains('reader-nav-auto') && ++readerNavWheelUps >= READER_NAV_REVEAL_UNITS) {
       readerNavWheelUps = 0;
@@ -2950,7 +2929,7 @@ snStudy.addEventListener('click', () => { if (hasStudy) setView(studyMode ? 'off
 snThumbs.addEventListener('click', () => setThumbsOpen(!thumbsOpen), { signal: _rsSignal });
 _wireSpeedDrag(snAuto);
 _wireSpeedDrag(autoBtn);
-snSettings.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')), { signal: _rsSignal });
+snSettings.addEventListener('click', () => setReaderSettingsOpen(!_settingsOpen), { signal: _rsSignal });
 snKeys.addEventListener('click', () => setKeybindOpen(!keybindModal.classList.contains('show')), { signal: _rsSignal });
 snTop.addEventListener('click', _backToTop, { signal: _rsSignal });
 snFit.addEventListener('click', () => (readerFitMode === 'width' ? fitPageHeight() : fitPageWidth()), { signal: _rsSignal });
@@ -3105,7 +3084,7 @@ const _readerActing = () => _readerPointerHeld || performance.now() - _readerInp
 // Turned up over the pages (not over the thumbnails or a dialog, which scroll on their own, nor a
 // pinch-zoom), the wheel stops it at once; a touch dragged down by more than a little does too.
 const AUTO_TOUCH_BACK_PX = 12;
-const _ownScroller = (el) => !!el?.closest?.('#thumbStrip, #readerSettingsModal, #keybindModal, #snChapters');
+const _ownScroller = (el) => !!el?.closest?.('#thumbStrip, #keybindModal, #snChapters') || _settingsHost.contains(el);
 window.addEventListener('wheel', (e) => {
   if (_autoRaf && readerAutoPauseOnUp && e.deltaY < 0 && !e.ctrlKey && !_ownScroller(e.target)) setAutoScroll(false);
 }, { capture: true, passive: true, signal: _rsSignal });
@@ -4833,78 +4812,166 @@ function _readerZoomScale() {
   return readerFitMode === 'height' ? _currentFitWidthFraction() : readerFitMaxWidth;
 }
 
-function _syncReaderSettingsUI() {
-  if (!readerSettingsBox) return;
-  readerSettingsBox.querySelectorAll('[data-reader-mode]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.readerMode === mode);
-  });
-  readerSettingsBox.querySelectorAll('[data-nav-direction]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.navDirection === readerNavDirection);
-  });
-  readerSettingsBox.querySelectorAll('[data-page-direction]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.pageDirection === readerPageDirection);
-  });
-  readerCoverOffsetInput.checked = readerCoverOffset;
-  readerDebugLoadedInput.checked = readerDebugLoaded;
-  readerOverviewInput.checked = !_skipOverview;
-  readerStripFlowInput.checked = _stripSeriesFlow;
-  readerTransitionsInput.checked = _chapterDividersOn;
-  readerPauseOnUpInput.checked = readerAutoPauseOnUp;
-  readerSmoothScrollInput.checked = readerSmoothScroll;
+// ── Reader settings: what the dialog is handed ──
+// The dialog is drawn by a host the engine is given (startReader's `settings`): opened, it is handed
+// what each control shows, as plain data (_settingsValues), and the functions that change them, each
+// the engine's own apply (_settingsActions); told the values again whenever the engine may have
+// changed one (_syncReaderSettingsUI), shown or not; and taken away. The engine decides when it opens and closes,
+// and where the focus goes back to.
+function _settingsValues() {
   const study = studyPrefs();
-  readerFuriganaInput.checked = study.furigana;
-  readerStudyFontSelect.value = study.srcFont;
-  for (const [attr, value] of [['data-translate-display', translateDisplay], ['data-study-original', study.original],
-    ['data-study-display', study.display]]) {
-    readerSettingsBox.querySelectorAll(`[${attr}]`).forEach(btn => btn.classList.toggle('active', btn.getAttribute(attr) === value));
-  }
-  // The original's font and furigana are for the original shown as text.
-  readerStudyTextGroup.disabled = study.original !== 'text';
-  // The modern navigation's place; the classic one has none.
-  readerNavPlaceGroup.disabled = readerNavLayout !== 'side';
-  for (const picker of PICKERS) _syncPickButton(picker);
-  readerSettingsBox.querySelectorAll('[data-reader-fit]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.readerFit === readerFitMode);
-  });
-  readerGap.value = readerPageGap;
-  readerGap.style.setProperty('--fill', `${readerPageGap / Number(readerGap.max) * 100}%`);
-  readerGapValue.textContent = `${readerPageGap} px`;
-  readerSettingsBox.querySelectorAll('[data-reader-nav]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.readerNav === readerNavLayout);
-  });
-  readerAutoScrollInput.value = readerAutoScrollSpeed;
-  readerAutoScrollInput.style.setProperty('--fill', `${(readerAutoScrollSpeed - 20) / 980 * 100}%`);
-  readerAutoScrollValue.textContent = _speedLabel();
-  readerDimInput.value = readerDim;
-  readerDimInput.style.setProperty('--fill', `${readerDim}%`);
-  readerDimValue.textContent = `${readerDim}%`;
+  return {
+    mode, fit: readerFitMode,
+    zoom: { scale: _readerZoomScale(), min: ZOOM_MIN, max: mode === 'strip' ? 1 : ZOOM_MAX },
+    gap: readerPageGap, dim: readerDim, speed: readerAutoScrollSpeed, speedLabel: _speedLabel(),
+    navDirection: readerNavDirection, pageDirection: readerPageDirection, coverOffset: readerCoverOffset, smoothScroll: readerSmoothScroll,
+    overview: !_skipOverview, stripFlow: _stripSeriesFlow, transitions: _chapterDividersOn, pauseOnUp: readerAutoPauseOnUp,
+    nav: readerNavLayout, navPlace: { edge: readerNavPos, along: readerNavAlign }, progress: readerProgressPosition, autoBar: readerAutoBarPosition,
+    translateDisplay, study: { original: study.original, display: study.display, srcFont: study.srcFont, furigana: study.furigana },
+    debugLoaded: readerDebugLoaded,
+    // What is greyed out: the modern navigation's place (the classic one has none), and the original's
+    // font and furigana (for the original shown as text).
+    off: { navPlace: readerNavLayout !== 'side', studyText: study.original !== 'text' },
+  };
+}
+const _settingsActions = {
+  close: () => setReaderSettingsOpen(false),
+  byKeys: () => _focusByKeys,
+  mode: (next) => setMode(next),
+  fit: (next) => {
+    if (next === 'off') {
+      _applyReaderFitMode('off');
+      _applyPageZoom(1);
+    } else {
+      void (next === 'width' ? fitPageWidth() : fitPageHeight()).then(_syncReaderSettingsUI);
+    }
+  },
+  zoom: (dir) => adjustPageZoom(dir),
+  gap: (value) => _applyReaderPageGap(value),
+  dim: (value) => _applyReaderDim(value),
+  speed: (value) => _applyReaderAutoScrollSpeed(value),
+  navDirection: (next) => _applyReaderNavDirection(next),
+  pageDirection: (next) => _applyReaderPageDirection(next),
+  coverOffset: (on) => _applyReaderCoverOffset(on),
+  smoothScroll: (on) => _applyReaderSmoothScroll(on),
+  overview: (on) => _applySkipOverview(!on),
+  stripFlow: (on) => _applyStripFlow(on),
+  transitions: (on) => _applyChapterTransitions(on),
+  pauseOnUp: (on) => _applyReaderPauseOnUp(on),
+  nav: (layout) => applyReaderNavLayout(layout),
+  navPlace: (edge, along) => applyReaderNavPlace(edge, along),
+  progress: (edge) => _applyReaderProgressPosition(edge),
+  autoBar: (edge) => _applyReaderAutoBarPosition(edge),
+  translateDisplay: (next) => _applyTranslateDisplay(next),
+  study: (key, value) => _applyStudyPref(key, value),
+  debugLoaded: (on) => _applyReaderDebugLoaded(on),
+};
+
+function _syncReaderSettingsUI() {
   _syncSideZoom();
-  const scale = _readerZoomScale();
-  readerZoomValue.textContent = `${Math.round(scale * 100)}%`;
-  readerZoomOut.disabled = scale <= ZOOM_MIN + .001;
-  readerZoomIn.disabled = scale >= (mode === 'strip' ? 1 : ZOOM_MAX) - .001;
+  _settingsHost.update(_settingsValues());
 }
 
 function setReaderSettingsOpen(open) {
-  readerSettingsModal.classList.toggle('show', open);
   readerSettingsBtn.classList.toggle('active', open);
   if (open) {
     setKeybindOpen(false);
-    _syncReaderSettingsUI();
-    readerSettingsClose.focus();
-  } else {
-    _closePicker();
+    _settingsOpen = true;
+    _settingsHost.show(_settingsValues(), _settingsActions);
+  } else if (_settingsOpen) {
     // The keyboard goes back to the button that opened them; a mouse leaves the focus nowhere.
-    if (document.activeElement && readerSettingsModal.contains(document.activeElement)) {
+    const focused = document.activeElement;
+    if (focused && _settingsHost.contains(focused)) {
       if (_focusByKeys) (readerNavLayout === 'side' ? snSettings : readerSettingsBtn).focus();
-      else document.activeElement.blur();
+      else focused.blur();
     }
+    _settingsOpen = false;
+    _settingsHost.hide();
   }
 }
 
 // The settings are set in the UI font's semibold and bold, which the reader's own chrome hardly
 // uses: asked for now, so the settings open at their size instead of growing once a face arrives.
 for (const weight of [600, 700]) document.fonts?.load(`${weight} 1em "JetBrains Mono"`).catch(() => {});
+
+// ── Reader settings: the frame's own dialog, bound behind the host's interface ──
+// (The dialog in the frame's markup, until the one page draws it.) It shows what it is handed and calls
+// what it is handed; it knows nothing else of the engine.
+function _frameSettings() {
+const readerSettingsModal = document.getElementById('readerSettingsModal');
+const readerSettingsBox = document.getElementById('readerSettingsBox');
+const readerSettingsClose = document.getElementById('readerSettingsClose');
+const readerCoverOffsetInput   = document.getElementById('readerCoverOffset');
+const readerDebugLoadedInput   = document.getElementById('readerDebugLoaded');
+const readerGap = document.getElementById('readerGap');
+const readerGapValue = document.getElementById('readerGapValue');
+const readerAutoScrollInput = document.getElementById('readerAutoScroll');
+const readerAutoScrollValue = document.getElementById('readerAutoScrollValue');
+const readerDimInput = document.getElementById('readerDim');
+const readerDimValue = document.getElementById('readerDimValue');
+const readerZoomOut = document.getElementById('readerZoomOut');
+const readerZoomIn = document.getElementById('readerZoomIn');
+const readerZoomValue = document.getElementById('readerZoomValue');
+const readerOverviewInput    = document.getElementById('readerOverview');
+const readerStripFlowInput   = document.getElementById('readerStripFlow');
+const readerTransitionsInput = document.getElementById('readerTransitions');
+const readerPauseOnUpInput   = document.getElementById('readerPauseOnUp');
+const readerSmoothScrollInput = document.getElementById('readerSmoothScroll');
+const readerFuriganaInput    = document.getElementById('readerFurigana');
+const readerStudyFontSelect  = document.getElementById('readerStudyFont');
+const readerStudyTextGroup   = document.getElementById('readerStudyTextGroup');
+const readerNavPlaceGroup    = document.getElementById('readerNavPlaceGroup');
+const rsPicker      = document.getElementById('rsPicker');
+let vals = null, act = null;   // what it was last handed
+let shown = false;
+
+function sync() {
+  readerSettingsBox.querySelectorAll('[data-reader-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.readerMode === vals.mode);
+  });
+  readerSettingsBox.querySelectorAll('[data-nav-direction]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.navDirection === vals.navDirection);
+  });
+  readerSettingsBox.querySelectorAll('[data-page-direction]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.pageDirection === vals.pageDirection);
+  });
+  readerCoverOffsetInput.checked = vals.coverOffset;
+  readerDebugLoadedInput.checked = vals.debugLoaded;
+  readerOverviewInput.checked = vals.overview;
+  readerStripFlowInput.checked = vals.stripFlow;
+  readerTransitionsInput.checked = vals.transitions;
+  readerPauseOnUpInput.checked = vals.pauseOnUp;
+  readerSmoothScrollInput.checked = vals.smoothScroll;
+  const study = vals.study;
+  readerFuriganaInput.checked = study.furigana;
+  readerStudyFontSelect.value = study.srcFont;
+  for (const [attr, value] of [['data-translate-display', vals.translateDisplay], ['data-study-original', study.original],
+    ['data-study-display', study.display]]) {
+    readerSettingsBox.querySelectorAll(`[${attr}]`).forEach(btn => btn.classList.toggle('active', btn.getAttribute(attr) === value));
+  }
+  readerStudyTextGroup.disabled = vals.off.studyText;
+  readerNavPlaceGroup.disabled = vals.off.navPlace;
+  for (const picker of PICKERS) _syncPickButton(picker);
+  readerSettingsBox.querySelectorAll('[data-reader-fit]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.readerFit === vals.fit);
+  });
+  readerGap.value = vals.gap;
+  readerGap.style.setProperty('--fill', `${vals.gap / Number(readerGap.max) * 100}%`);
+  readerGapValue.textContent = `${vals.gap} px`;
+  readerSettingsBox.querySelectorAll('[data-reader-nav]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.readerNav === vals.nav);
+  });
+  readerAutoScrollInput.value = vals.speed;
+  readerAutoScrollInput.style.setProperty('--fill', `${(vals.speed - 20) / 980 * 100}%`);
+  readerAutoScrollValue.textContent = vals.speedLabel;
+  readerDimInput.value = vals.dim;
+  readerDimInput.style.setProperty('--fill', `${vals.dim}%`);
+  readerDimValue.textContent = `${vals.dim}%`;
+  const { scale, min, max } = vals.zoom;
+  readerZoomValue.textContent = `${Math.round(scale * 100)}%`;
+  readerZoomOut.disabled = scale <= min + .001;
+  readerZoomIn.disabled = scale >= max - .001;
+}
 
 // ── Reader settings: tabs ──
 // The most used settings first; they open on the tab last shown. The box keeps its top from tab to
@@ -4943,6 +5010,7 @@ const ALONG_CELL = {
   left:   { start: [-1, -1], center: [-1, 0], end: [-1, 1] },
   right:  { start: [1, -1],  center: [1, 0],  end: [1, 1] },
 };
+const ALONGS = ['start', 'center', 'end'];
 const _acrossEdge = (edge) => edge === 'top' || edge === 'bottom';
 const _edgeLabel = (edge) => t(`rd.${edge}`);
 // Along a top or bottom edge, its start is the left; along a side, the top.
@@ -4963,13 +5031,13 @@ function _pickIcon(edge, along) {
 const PICKERS = [
   { btn: document.getElementById('readerNavPlace'), value: document.getElementById('readerNavPlaceValue'),
     edges: ['top', 'left', 'right', 'bottom'], along: true,
-    current: () => ({ edge: readerNavPos, along: readerNavAlign }), pick: (edge, along) => applyReaderNavPlace(edge, along) },
+    current: () => vals.navPlace, pick: (edge, along) => act.navPlace(edge, along) },
   { btn: document.getElementById('readerProgress'), value: document.getElementById('readerProgressValue'),
     edges: ['top', 'left', 'right', 'bottom'], off: [1, 1],
-    current: () => ({ edge: readerProgressPosition }), pick: (edge) => _applyReaderProgressPosition(edge) },
+    current: () => ({ edge: vals.progress }), pick: (edge) => act.progress(edge) },
   { btn: document.getElementById('readerAutoBar'), value: document.getElementById('readerAutoBarValue'),
     edges: ['top', 'bottom'],
-    current: () => ({ edge: readerAutoBarPosition }), pick: (edge) => _applyReaderAutoBarPosition(edge) },
+    current: () => ({ edge: vals.autoBar }), pick: (edge) => act.autoBar(edge) },
 ];
 
 function _syncPickButton(p) {
@@ -4988,7 +5056,7 @@ function _renderPicker() {
   const cells = [];
   for (const edge of p.edges) {
     if (p.along && _pick.edge === edge) {
-      for (const along of NAV_ALIGNS) cells.push({ edge, along, at: ALONG_CELL[edge][along], current: now.edge === edge && now.along === along });
+      for (const along of ALONGS) cells.push({ edge, along, at: ALONG_CELL[edge][along], current: now.edge === edge && now.along === along });
     } else {
       cells.push({ edge, at: EDGE_CELL[edge], current: now.edge === edge, opens: !!p.along });
     }
@@ -5025,7 +5093,7 @@ function _closePicker(refocus) {
   rsPicker.hidden = true;
   rsPicker.replaceChildren();
   btn.setAttribute('aria-expanded', 'false');
-  if (refocus && _focusByKeys) btn.focus();   // for the keyboard, back to its button
+  if (refocus && act.byKeys()) btn.focus();   // for the keyboard, back to its button
 }
 const _pickerOpen = () => !!_pick;
 
@@ -5112,53 +5180,89 @@ document.addEventListener('pointerdown', (e) => {
 readerSettingsBox.addEventListener('scroll', () => _closePicker(), { capture: true, signal: _rsSignal });   // the tab shown is what scrolls
 window.addEventListener('resize', () => _closePicker(), { signal: _rsSignal });
 
-readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!readerSettingsModal.classList.contains('show')), { signal: _rsSignal });
-readerSettingsClose.addEventListener('click', () => setReaderSettingsOpen(false), { signal: _rsSignal });
+readerSettingsClose.addEventListener('click', () => act.close(), { signal: _rsSignal });
 readerSettingsModal.addEventListener('click', (e) => {
-  if (!e.target.closest('#readerSettingsBox')) setReaderSettingsOpen(false);
+  if (!e.target.closest('#readerSettingsBox')) act.close();
 }, { signal: _rsSignal });
 readerSettingsBox.addEventListener('click', (e) => {
   const modeBtn = e.target.closest('[data-reader-mode]');
-  if (modeBtn) { setMode(modeBtn.dataset.readerMode); return; }
+  if (modeBtn) { act.mode(modeBtn.dataset.readerMode); return; }
   const navDirectionBtn = e.target.closest('[data-nav-direction]');
-  if (navDirectionBtn) { _applyReaderNavDirection(navDirectionBtn.dataset.navDirection); return; }
+  if (navDirectionBtn) { act.navDirection(navDirectionBtn.dataset.navDirection); return; }
   const pageDirectionBtn = e.target.closest('[data-page-direction]');
-  if (pageDirectionBtn) { _applyReaderPageDirection(pageDirectionBtn.dataset.pageDirection); return; }
+  if (pageDirectionBtn) { act.pageDirection(pageDirectionBtn.dataset.pageDirection); return; }
   const translateBtn = e.target.closest('[data-translate-display]');
-  if (translateBtn) { _applyTranslateDisplay(translateBtn.dataset.translateDisplay); return; }
+  if (translateBtn) { act.translateDisplay(translateBtn.dataset.translateDisplay); return; }
   const originalBtn = e.target.closest('[data-study-original]');
-  if (originalBtn) { _applyStudyPref('original', originalBtn.dataset.studyOriginal); return; }
+  if (originalBtn) { act.study('original', originalBtn.dataset.studyOriginal); return; }
   const studyDisplayBtn = e.target.closest('[data-study-display]');
-  if (studyDisplayBtn) { _applyStudyPref('display', studyDisplayBtn.dataset.studyDisplay); return; }
+  if (studyDisplayBtn) { act.study('display', studyDisplayBtn.dataset.studyDisplay); return; }
   const fitBtn = e.target.closest('[data-reader-fit]');
-  if (fitBtn) {
-    const next = fitBtn.dataset.readerFit;
-    if (next === 'off') {
-      _applyReaderFitMode('off');
-      _applyPageZoom(1);
-    } else {
-      void (next === 'width' ? fitPageWidth() : fitPageHeight()).then(_syncReaderSettingsUI);
-    }
-  }
+  if (fitBtn) act.fit(fitBtn.dataset.readerFit);
 }, { signal: _rsSignal });
-readerGap.addEventListener('input', () => _applyReaderPageGap(readerGap.value), { signal: _rsSignal });
-readerAutoScrollInput.addEventListener('input', () => _applyReaderAutoScrollSpeed(readerAutoScrollInput.value), { signal: _rsSignal });
-readerDimInput.addEventListener('input', () => _applyReaderDim(readerDimInput.value), { signal: _rsSignal });
+readerGap.addEventListener('input', () => act.gap(readerGap.value), { signal: _rsSignal });
+readerAutoScrollInput.addEventListener('input', () => act.speed(readerAutoScrollInput.value), { signal: _rsSignal });
+readerDimInput.addEventListener('input', () => act.dim(readerDimInput.value), { signal: _rsSignal });
 readerSettingsBox.querySelectorAll('[data-reader-nav]').forEach(btn => {
-  btn.addEventListener('click', () => applyReaderNavLayout(btn.dataset.readerNav), { signal: _rsSignal });
+  btn.addEventListener('click', () => act.nav(btn.dataset.readerNav), { signal: _rsSignal });
 });
-readerCoverOffsetInput.addEventListener('change', () => _applyReaderCoverOffset(readerCoverOffsetInput.checked), { signal: _rsSignal });
-readerDebugLoadedInput.addEventListener('change', () => _applyReaderDebugLoaded(readerDebugLoadedInput.checked), { signal: _rsSignal });
-readerOverviewInput.addEventListener('change', () => _applySkipOverview(!readerOverviewInput.checked), { signal: _rsSignal });
-readerStripFlowInput.addEventListener('change', () => _applyStripFlow(readerStripFlowInput.checked), { signal: _rsSignal });
-readerTransitionsInput.addEventListener('change', () => _applyChapterTransitions(readerTransitionsInput.checked), { signal: _rsSignal });
-readerPauseOnUpInput.addEventListener('change', () => _applyReaderPauseOnUp(readerPauseOnUpInput.checked), { signal: _rsSignal });
-readerSmoothScrollInput.addEventListener('change', () => _applyReaderSmoothScroll(readerSmoothScrollInput.checked), { signal: _rsSignal });
-readerFuriganaInput.addEventListener('change', () => _applyStudyPref('furigana', readerFuriganaInput.checked), { signal: _rsSignal });
-readerStudyFontSelect.addEventListener('change', () => _applyStudyPref('srcFont', readerStudyFontSelect.value), { signal: _rsSignal });
+readerCoverOffsetInput.addEventListener('change', () => act.coverOffset(readerCoverOffsetInput.checked), { signal: _rsSignal });
+readerDebugLoadedInput.addEventListener('change', () => act.debugLoaded(readerDebugLoadedInput.checked), { signal: _rsSignal });
+readerOverviewInput.addEventListener('change', () => act.overview(readerOverviewInput.checked), { signal: _rsSignal });
+readerStripFlowInput.addEventListener('change', () => act.stripFlow(readerStripFlowInput.checked), { signal: _rsSignal });
+readerTransitionsInput.addEventListener('change', () => act.transitions(readerTransitionsInput.checked), { signal: _rsSignal });
+readerPauseOnUpInput.addEventListener('change', () => act.pauseOnUp(readerPauseOnUpInput.checked), { signal: _rsSignal });
+readerSmoothScrollInput.addEventListener('change', () => act.smoothScroll(readerSmoothScrollInput.checked), { signal: _rsSignal });
+readerFuriganaInput.addEventListener('change', () => act.study('furigana', readerFuriganaInput.checked), { signal: _rsSignal });
+readerStudyFontSelect.addEventListener('change', () => act.study('srcFont', readerStudyFontSelect.value), { signal: _rsSignal });
+readerZoomOut.addEventListener('click', () => act.zoom(-1), { signal: _rsSignal });
+readerZoomIn.addEventListener('click', () => act.zoom(1), { signal: _rsSignal });
+
+// The keys a focused control in the reader settings uses itself: a slider's arrows, Home, End and page
+// keys; a dropdown's too, with Space and Enter; a tab's arrows, Home and End; Space and Enter on a
+// button or a switch.
+const SLIDER_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+function _settingsControlKey(e) {
+  const el = e.target;
+  if (!readerSettingsBox.contains(el)) return false;
+  if (el.matches('input[type="range"]')) return SLIDER_KEYS.has(e.key);
+  if (el.matches('select')) return SLIDER_KEYS.has(e.key) || e.key === ' ' || e.key === 'Enter';
+  if (el.matches('[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return true;
+  return (e.key === ' ' || e.key === 'Enter') && el.matches('button, input, [tabindex]');
+}
+
+return {
+  show(values, actions) {
+    vals = values;
+    act = actions;
+    shown = true;
+    readerSettingsModal.classList.add('show');
+    sync();
+    readerSettingsClose.focus();
+  },
+  update(values) {
+    vals = values;
+    sync();
+  },
+  hide() {
+    if (!shown) return;
+    shown = false;
+    readerSettingsModal.classList.remove('show');
+    _closePicker();
+  },
+  contains: (el) => readerSettingsModal.contains(el),
+  // Escape: an open picker is put away (true), or nothing is open in it (false).
+  escape() {
+    if (!_pickerOpen()) return false;
+    _closePicker(true);
+    return true;
+  },
+  ownsKey: (e) => _pickerOpen() || _settingsControlKey(e),
+};
+}
+
+readerSettingsBtn.addEventListener('click', () => setReaderSettingsOpen(!_settingsOpen), { signal: _rsSignal });
 initDropdowns();
-readerZoomOut.addEventListener('click', () => adjustPageZoom(-1), { signal: _rsSignal });
-readerZoomIn.addEventListener('click', () => adjustPageZoom(1), { signal: _rsSignal });
 
 readerPinBtn.addEventListener('click', () => applyReaderPin(!readerPinned), { signal: _rsSignal });
 
@@ -5433,19 +5537,6 @@ function _dropPointerFocus(e) {
   if (el && el !== document.body) el.blur();
 }
 
-// The keys a focused control in the reader settings uses itself: a slider's arrows, Home, End and page
-// keys; a dropdown's too, with Space and Enter; a tab's arrows, Home and End; Space and Enter on a
-// button or a switch.
-const SLIDER_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
-function _settingsControlKey(e) {
-  const el = e.target;
-  if (!readerSettingsBox.contains(el)) return false;
-  if (el.matches('input[type="range"]')) return SLIDER_KEYS.has(e.key);
-  if (el.matches('select')) return SLIDER_KEYS.has(e.key) || e.key === ' ' || e.key === 'Enter';
-  if (el.matches('[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return true;
-  return (e.key === ' ' || e.key === 'Enter') && el.matches('button, input, [tabindex]');
-}
-
 // Keyboard
 document.addEventListener('keydown', (e) => {
   if (propertiesOpen()) {
@@ -5456,15 +5547,15 @@ document.addEventListener('keydown', (e) => {
   _setStudyTextSelectable(e.ctrlKey);   // Ctrl held → study text is selectable
   // Open, the reader settings leave the reader's keys working, so a change can be tried at once,
   // except the keys their focused control uses itself; Escape puts a picker away, then closes them.
-  if (readerSettingsModal.classList.contains('show')) {
+  if (_settingsOpen) {
     if (e.key === 'Escape') {
       e.preventDefault();
-      if (_pickerOpen()) _closePicker(true); else setReaderSettingsOpen(false);
+      if (!_settingsHost.escape(e)) setReaderSettingsOpen(false);
       return;
     }
-    if (_pickerOpen() || _settingsControlKey(e)) return;
+    if (_settingsHost.ownsKey(e)) return;
   }
-  const typing = editingTarget(e.target) && !readerSettingsBox.contains(e.target);   // the settings have no text to type
+  const typing = editingTarget(e.target) && !_settingsHost.contains(e.target);   // the settings have no text to type
   if (!typing) _dropPointerFocus(e);
   if (_chapterListOpen() && e.key === 'Escape') {
     e.preventDefault();
@@ -5635,6 +5726,7 @@ function _rsBeforeStop() {
   if (propertiesOpen()) closePageProperties();
   closeFeedback();                       // its dialogs, open or kept closed, and their previews' URLs
   closePageMenu();
+  if (_settingsOpen) { _settingsOpen = false; _settingsHost.hide(); }
   clearPageStatus();
   stopStudy();                           // reader-study.js: its listeners, layers and their URLs, records
   _rsEndPageNav();

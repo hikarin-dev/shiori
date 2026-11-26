@@ -64,6 +64,17 @@ before(async () => {
 
 after(async () => { await browser?.close(); server?.close(); });
 
+// Reader settings → Display → Debug → "Show loaded pages", set as a person sets it: the settings
+// opened, the switch pressed if it is not as asked, the settings closed.
+async function setDebug(page, on) {
+  await page.evaluate(() => (document.body.classList.contains('reader-side-nav') ? document.getElementById('snSettings') : document.getElementById('readerSettingsBtn')).click());
+  await page.waitForSelector('#readerSettingsModal.show');
+  await page.$eval('[role="tab"][data-rs-tab="display"]', (tab) => tab.click());
+  if (await page.$eval('#readerDebugLoaded', (input) => input.checked) !== on) await page.click('label[for="readerDebugLoaded"]');
+  await page.$eval('#readerSettingsClose', (button) => button.click());
+  await until(page, () => !document.querySelector('#readerSettingsModal.show'), null, { what: 'reader settings closed' });
+}
+
 async function reader(t, { at = 1, mode = 'strip', fit = 'height', gallery = GALLERY, count = PAGE_COUNT, position = 'bottom', flow = 'chapter', pinned = false } = {}) {
   const page = await openPage(browser, origin);
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
@@ -757,11 +768,7 @@ const pressShows = (page, n) => page.evaluate(async (n) => {
 
 test('resting the pointer on the bar readies the page a press there shows', { skip: !chromePath() }, async t => {
   const page = await reader(t, { mode: 'single', gallery: HEAVY_GALLERY, count: HEAVY_COUNT, at: 5 });
-  await page.evaluate(() => {
-    const input = document.getElementById('readerDebugLoaded');
-    input.checked = true;
-    input.dispatchEvent(new Event('change'));
-  });
+  await setDebug(page, true);
   await settle(1000);
   const { x, y } = await segmentPoint(page, 90);
   await page.mouse.move(x, y - 8);
@@ -784,12 +791,8 @@ test('resting the pointer on the bar readies the page a press there shows', { sk
 
 test('resting the pointer on a thumbnail readies its page', { skip: !chromePath() }, async t => {
   const page = await reader(t, { mode: 'single', gallery: HEAVY_GALLERY, count: HEAVY_COUNT, at: 5 });
-  await page.evaluate(() => {
-    const input = document.getElementById('readerDebugLoaded');
-    input.checked = true;
-    input.dispatchEvent(new Event('change'));
-    document.getElementById('thumbBtn').click();
-  });
+  await setDebug(page, true);
+  await page.evaluate(() => document.getElementById('thumbBtn').click());
   await settle(800);
   // The furthest thumbnail fully on screen, whose page isn't loaded yet.
   const { x, y, n } = await page.evaluate(() => {
@@ -816,11 +819,7 @@ test('the debug view colours the pages the reader holds, and nothing when off', 
     return { blue, held };
   });
   assert.deepEqual((await marked()).blue, [], 'off, the bar shows nothing extra');
-  await page.evaluate(() => {
-    const input = document.getElementById('readerDebugLoaded');
-    input.checked = true;
-    input.dispatchEvent(new Event('change'));
-  });
+  await setDebug(page, true);
   await scrollSettled(page);
   // Every page the strip holds, and only those, turns blue (a frame after it loads).
   await until(page, () => {
@@ -833,10 +832,6 @@ test('the debug view colours the pages the reader holds, and nothing when off', 
   }, null, { what: 'the blue segments to match the pages held' });
   const color = await page.$eval('.scrub-segment.debug-loaded:not(.active)', s => getComputedStyle(s).backgroundColor);
   assert.equal(color, 'rgb(47, 124, 246)');
-  await page.evaluate(() => {
-    const input = document.getElementById('readerDebugLoaded');
-    input.checked = false;
-    input.dispatchEvent(new Event('change'));
-  });
+  await setDebug(page, false);
   assert.deepEqual((await marked()).blue, []);
 });
