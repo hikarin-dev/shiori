@@ -1,8 +1,9 @@
-// reader-route.browser.mjs — the reader drawn by the one page, at its route (/reader-next, beside the
-// reader's own page until it takes /reader): its frame is the reader's page's markup; what that page
-// has before its first paint the frame has before its own, on a hard load and on a change of route, the
-// CPU slowed; every way out of it and every way back is a change of route that keeps where the person
-// was; another gallery is another frame; and entering and leaving it leaves nothing behind.
+// reader-route.browser.mjs — the reader drawn by the one page, at its route (/reader; 1.3's reader page
+// until 2026-11-26): its frame is that page's markup; what that page had before its first paint the frame
+// has before its own, on a hard load and on a change of route, the CPU slowed, and before the frame is
+// drawn the window shows the reader's ground and nothing else; every way out of it and every way back is
+// a change of route that keeps where the person was; another gallery is another frame; and entering and
+// leaving it leaves nothing behind.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { basename } from 'node:path';
@@ -50,7 +51,7 @@ const drawn = () => [...document.querySelectorAll('#stripView img[src], #mainImg
 const readerDrawn = (page) => until(page, drawn, null, { what: 'a page of the reader drawn' });
 const counter = (page) => page.$eval('#pageCounter', (el) => el.textContent.replace(/\s+/g, ' ').trim());
 // A change of route, as a link of the app's makes one (links.ts keeps a plain link to an address the one
-// page draws inside it): nothing of the app links to the route yet.
+// page draws inside it).
 const follow = (page, href) => page.evaluate((href) => {
   const a = Object.assign(document.createElement('a'), { href, textContent: 'go' });
   document.body.append(a);
@@ -80,7 +81,7 @@ async function open(t, path, settings = settingsFor()) {
 // commit (records.mjs).
 test('the route\'s frame is the reader\'s page\'s markup, element for element, and nothing of the one page\'s stands around it', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open(t, `/reader-next?g=${SINGLE}&page=1`);
+  const page = await open(t, `/reader?g=${SINGLE}&page=1`);
   await readerDrawn(page);
   const own = kept(FILE, 'frame');
   const seen = await page.evaluate((own) => {
@@ -92,7 +93,7 @@ test('the route\'s frame is the reader\'s page\'s markup, element for element, a
       drawn: ids(frame).filter((id) => ownIds.has(id.split('#')[1])),
       // Its top-level parts in the page's order.
       parts: [...frame.children].map((el) => el.id),
-      header: !!document.querySelector('header.app-header'), meta: document.querySelector('meta[name="shiori-app"]'),
+      header: !!document.querySelector('header.app-header'), meta: [...document.querySelectorAll('meta[name="shiori-app"]')].map((m) => m.content),
       mark: document.documentElement.hasAttribute('data-reader'), frameMark: document.documentElement.dataset.frame ?? null,
       title: document.title, logo: frame.querySelector('.brand-icon img').naturalWidth, home: frame.querySelector('#snHome').href,
     };
@@ -101,7 +102,7 @@ test('the route\'s frame is the reader\'s page\'s markup, element for element, a
   assert.deepEqual(seen.drawn, own.elements, 'every element of the page, in its order');
   assert.deepEqual(seen.parts, own.parts);
   assert.deepEqual({ header: seen.header, meta: seen.meta, mark: seen.mark, frameMark: seen.frameMark },
-    { header: false, meta: null, mark: true, frameMark: null }, 'no common header, no shiori-app meta (an interim address), the reader\'s mark');
+    { header: false, meta: ['reader'], mark: true, frameMark: null }, 'no common header, the shiori-app meta saying "reader", the reader\'s mark');
   assert.match(seen.title, /^Shiori — #/);
   assert.ok(seen.logo > 0, 'the brand\'s picture found at the site\'s root');
   assert.equal(seen.home, `${origin}/`);
@@ -144,14 +145,14 @@ test('before its first paint the frame has what the reader\'s page has before it
       if (how === 'hard load') {
         await page.evaluateOnNewDocument(record);
         await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
-        await page.goto(`${origin}/reader-next?g=${SINGLE}&page=1`, { waitUntil: 'load' });
+        await page.goto(`${origin}/reader?g=${SINGLE}&page=1`, { waitUntil: 'load' });
       } else {
         await page.goto(`${origin}/overview?g=${SINGLE}`, { waitUntil: 'load' });
         await until(page, () => !!document.querySelector('#root main, #ovContent .ov-hero, #settingsNav, #tkList'), null, { what: 'the overview' });
         await sleep(300);
         await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
         await page.evaluate(record);
-        await follow(page, `/reader-next?g=${SINGLE}&page=1`);
+        await follow(page, `/reader?g=${SINGLE}&page=1`);
       }
       await until(page, drawn, null, { what: 'a page drawn', timeout: 60000 });
       await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
@@ -180,7 +181,7 @@ test('every way out of the reader is a change of route, and Back finds the reade
   const stayed = () => page.evaluate(() => window.__stayed === true);
   const at = () => page.evaluate(() => location.pathname + location.search);
   const enter = async (gid, n = 1) => {
-    await follow(page, `/reader-next?g=${gid}&page=${n}`);
+    await follow(page, `/reader?g=${gid}&page=${n}`);
     await readerDrawn(page);
   };
   const left = async (path) => {
@@ -206,7 +207,7 @@ test('every way out of the reader is a change of route, and Back finds the reade
   await page.click('.brand-wrap');
   await left('/');
   await back(5);
-  assert.equal(await at(), `/reader-next?g=${SINGLE}&page=5`);
+  assert.equal(await at(), `/reader?g=${SINGLE}&page=5`);
   // The page menu: Settings, the overview, Tasks, the library.
   for (const [choice, path] of [['settings', '/settings'], ['overview', `/overview?g=${SINGLE}`], ['tasks', '/tasks'], ['library', '/']]) {
     await page.select('#pageNav', choice);
@@ -279,7 +280,7 @@ test('Back from the reader shows the overview as it was left, its scroll kept', 
     await sleep(300);
     const before = await page.evaluate(() => ({ y: scrollY, title: document.title, text: document.getElementById('ovContent').innerText }));
     assert.equal(before.y, y);
-    await follow(page, `/reader-next?g=${read}&page=1`);
+    await follow(page, `/reader?g=${read}&page=1`);
     await readerDrawn(page);
     for (let i = 0; i < 3; i++) { await page.mouse.wheel({ deltaY: 900 }); await sleep(150); }
     await page.goBack();
@@ -294,11 +295,11 @@ test('Back from the reader shows the overview as it was left, its scroll kept', 
 
 test('another gallery is another frame and another engine; the address\'s own chapter moves keep the frame', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const page = await open(t, `/reader-next?g=${SINGLE}&page=2`);
+  const page = await open(t, `/reader?g=${SINGLE}&page=2`);
   await readerDrawn(page);
   const first = await page.$('.reader-frame');
   await page.evaluate(() => { window.__stayed = true; });
-  await follow(page, `/reader-next?g=${OTHER}&page=1`);
+  await follow(page, `/reader?g=${OTHER}&page=1`);
   await until(page, (f) => !f.isConnected, first, { what: 'the first frame gone' });
   await readerDrawn(page);
   assert.equal(await counter(page), '1 / 4');
@@ -353,7 +354,7 @@ test('entered and left five times (pages turned, a mode, study, a dialog), the r
   await page.evaluate(() => { window.__stayed = true; });
   const rows = [];
   for (let c = 1; c <= 5; c++) {
-    await follow(page, `/reader-next?g=${SINGLE}&page=1`);
+    await follow(page, `/reader?g=${SINGLE}&page=1`);
     await readerDrawn(page);
     await page.mouse.move(640, 450);
     for (let i = 0; i < 2; i++) { await page.mouse.wheel({ deltaY: 700 }); await sleep(100); }

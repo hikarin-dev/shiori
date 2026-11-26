@@ -1,0 +1,17 @@
+{
+  "reading": {
+    "address": "/reader?g=1795200000401&page=1",
+    "counter": "1 / 2",
+    "title": "Shiori — #971"
+  },
+  "begun": {
+    "runner": "reader",
+    "tag": "Tab · Reader"
+  },
+  "row": "Translating…",
+  "onOverview": {
+    "runner": "overview",
+    "tag": "Tab · Overview"
+  },
+  "card": ""
+}

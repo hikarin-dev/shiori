@@ -470,3 +470,55 @@ test('library → overview → library five times leaves nothing behind', { skip
   await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
   await page.close();
 });
+
+// 8d: since the reader's switch the overview and the reader are two routes of one page too, and overview →
+// reader → overview is the commonest path of reading: a series' overview (a job running on a row) → a
+// chapter read from its row's title (a page turned, the thumbnails shown and hidden) → Back, five times,
+// both pages' leave tests in one walk. Back on the overview each time, nothing of the reader stays (its
+// frame, workers, object URLs, tips) and nothing grows (listeners, intervals, timers over a second,
+// observers, channels), the overview's own counted as it stands after its first return; timers over a
+// second as above (the helper's bridge's give-up timers), 15 s after the last return back to what the
+// first return left or fewer.
+test('overview → reader → overview five times leaves nothing behind', { skip: !chromePath() }, async () => {
+  const page = await openPage(browser, origin);
+  await page.setViewport({ width: 1280, height: 900 });
+  await page.evaluateOnNewDocument(instrument);
+  await page.evaluateOnNewDocument(holding);
+  await page.evaluateOnNewDocument(() => { localStorage.setItem('shiori-reader-nav', 'top'); localStorage.setItem('shiori-reader-pin', '1'); localStorage.setItem('shiori:readerMode', '"single"'); });
+  await page.goto(`${origin}/overview?g=${gid(base, 'S')}`, { waitUntil: 'load' });
+  const overviewDrawn = () => until(page, () => location.pathname === '/overview' && !document.querySelector('.reader-frame') && document.querySelectorAll('.ch-row').length === 4
+    && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
+  await overviewDrawn();
+  await publish(page, { gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 });
+  await until(page, () => !!document.querySelector('.ch-row.working'), null, { what: 'the job drawn' });
+  await sleep(1500);
+  await page.evaluate(() => { window.__stayed = true; });
+  const counts = [];
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate(() => document.querySelector('.ch-row:nth-child(1) .ch-title-open').click());
+    await until(page, () => location.pathname === '/reader' && document.getElementById('mainImg')?.naturalWidth > 0
+      && getComputedStyle(document.getElementById('loadingScreen')).display === 'none', null, { what: 'the reader' });
+    await page.keyboard.press('ArrowRight');
+    await sleep(150);
+    await page.keyboard.press('g');
+    await until(page, () => document.querySelectorAll('#thumbStrip .thumb-item img[src]').length > 0, null, { what: 'the thumbnails' });
+    await page.keyboard.press('g');
+    await sleep(300);
+    await page.evaluate(() => history.back());
+    await overviewDrawn();
+    await sleep(1500);
+    counts.push(await page.evaluate(() => ({ ...window.__held, workers: window.__thumbs.workers - window.__thumbs.ended, urls: window.__thumbs.urls.size,
+      frames: document.querySelectorAll('.reader-frame').length, rows: document.querySelectorAll('.ch-row').length, tips: document.querySelectorAll('.shiori-tip').length,
+      sheets: document.querySelectorAll('link[rel="stylesheet"][href$="app/reader.css"]').length })));
+  }
+  assert.equal(await page.evaluate(() => window.__stayed), true, 'one document throughout: changes of route');
+  assert.ok(counts.every((c) => c.frames === 0 && c.rows === 4 && c.tips <= 1 && c.sheets === 1), JSON.stringify(counts));
+  const but = ({ timers, ...c }) => c;
+  assert.deepEqual(counts.slice(1).map(but), Array(5).fill(but(counts[0])), JSON.stringify(counts));
+  await sleep(16000);
+  const rested = await page.evaluate(() => window.__held.timers);
+  assert.ok(rested <= counts[0].timers, `timers over a second, 15 s after the last return: ${rested} (the first return left ${counts[0].timers}; ${counts.map((c) => c.timers)})`);
+  assert.deepEqual(page.problems, []);
+  await page.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  await page.close();
+});

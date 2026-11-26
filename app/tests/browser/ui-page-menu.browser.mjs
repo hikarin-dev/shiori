@@ -1,10 +1,9 @@
 // ui-page-menu.browser.mjs — PageMenu (src/components/ui/page-menu.tsx) as /components shows it: the
 // pages it offers (a gallery's overview only where the address names a gallery, the reader only in
-// the reader), and choosing one: a plain page load for a page that still has a file of its own, a
-// route change (no load) for one the one page draws; under a coarse pointer the system's picker (T15),
-// as wide as the drawn box. (Since the overview's switch, 2026-11-25, every page it offers outside the
-// reader is drawn by the one page: the reader, the one page left with a file of its own, is offered only
-// in the reader, whose menu is its own page's. Until then a gallery's overview was the page it loaded.)
+// the reader), and choosing one: a route change (no load), every page it offers being drawn by the one
+// page; under a coarse pointer the system's picker (T15), as wide as the drawn box. (Until the overview's
+// switch, 2026-11-25, a gallery's overview was a page it loaded; the reader, offered only in the reader,
+// whose menu is the reader's own, was a page with a file of its own until 2026-11-26.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, until } from './harness.mjs';

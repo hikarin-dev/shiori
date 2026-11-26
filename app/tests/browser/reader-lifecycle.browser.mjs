@@ -1,13 +1,12 @@
 // reader-lifecycle.browser.mjs — the reader's engine has a start and a stop (app/js/reader.js
-// startReader), on its own page: what the stop puts back, and that it leaves nothing behind. The page's
-// entry is answered with one that holds the engine (harness.mjs READER_ENTRIES).
+// startReader), started by the route that draws it: what the stop puts back, and that it leaves nothing
+// behind. Where a test stops and starts the engine itself, it is held for it (harness.mjs, openPage's
+// `reader`).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
-// The reader as the one page draws it, at its route (until it takes /reader).
-const READER_ROUTE_PATH = '/reader-next';
 const GALLERY = '1790000000401';
 const PAGE_COUNT = 12;
 let server, origin, browser;
@@ -293,7 +292,7 @@ test('started, used and stopped five times, the reader leaves nothing behind, an
   const rows = [];
   for (let c = 1; c <= 5; c++) {
     // In by a link, as the app's own are followed (a change of route).
-    await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); a.remove(); }, `${READER_ROUTE_PATH}?g=${GALLERY}&page=1`);
+    await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); a.remove(); }, `/reader?g=${GALLERY}&page=1`);
     await use(page, c);
     await page.goBack();
     await until(page, () => !document.querySelector('.reader-frame') && !!document.getElementById('tkList'), null, { what: 'Tasks again' });

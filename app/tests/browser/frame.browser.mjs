@@ -5,7 +5,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { startServer, chromePath, launch, openPage, until, READER_PATH } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { builtSite } from '../../../build/built.mjs';
 
 let server, origin, browser;
@@ -149,9 +149,16 @@ test('a plain link to an address the one page draws is followed inside the app; 
   await until(page, () => document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page'), undefined, { what: 'the library page' });
   assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
 
-  // A page that still has a file of its own: loaded as always.
-  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toReader')]);
-  await until(page, (path) => document.title === 'Shiori — Reader' && location.pathname === path, READER_PATH, { what: 'the reader\'s page' });
+  // The reader, which the one page draws too since its switch (2026-11-26; until then a page with a file
+  // of its own, loaded as always): no page load. With no gallery asked for, its empty screen.
+  await click('toReader');
+  await until(page, () => location.pathname === '/reader' && !!document.querySelector('#root > .reader-frame #emptyScreen'), undefined, { what: 'the reader' });
+  assert.equal(await page.evaluate(() => window.stayed), true, 'no page load');
+
+  // An address the app doesn't have: loaded as always (the host's answer says so).
+  await page.evaluate(() => { const a = document.body.insertBefore(document.createElement('a'), document.body.firstChild); a.id = 'toNowhere'; a.href = 'nowhere'; });
+  await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toNowhere')]);
+  await until(page, () => location.pathname === '/nowhere' && /Not found/.test(document.body.textContent), undefined, { what: 'the host\'s answer' });
   assert.equal(await page.evaluate(() => window.stayed), undefined, 'a page load');
-  assert.deepEqual(page.problems, []);
+  assert.deepEqual(page.problems.filter((p) => !/status of 404/.test(p)), []);
 });

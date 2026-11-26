@@ -1,17 +1,16 @@
-// reader.tsx — the reader as the one page draws it (at /reader-next?g=…, beside 1.3's page at /reader
-// until the switch): its frame, and the engine (app/js/reader.js) started in it. The engine, the chrome,
-// the dialogs and the menus are the reader's own, as on its page.
+// reader.tsx — the reader as the one page draws it (at /reader?g=…, 1.3's page until 2026-11-26): its
+// frame, and the engine (app/js/reader.js) started in it. The engine, the chrome, the dialogs and the
+// menus are the reader's own, as on its page.
 //
-// The frame is the markup app/reader.html has in its body (./reader/frame.ts: one source for both
-// pages), drawn by React once and never again: the engine owns everything inside it. Each start has a
-// frame of its own: the route is keyed on the gallery (?g=), so another gallery is another frame and
-// another engine, and a frame leaves the document with its stopped engine (a stopped engine's scope
-// lives as long as its frame).
+// The frame is the markup 1.3's page had in its body (./reader/frame.ts), drawn by React once and never
+// again: the engine owns everything inside it. Each start has a frame of its own: the route is keyed on
+// the gallery (?g=), so another gallery is another frame and another engine, and a frame leaves the
+// document with its stopped engine (a stopped engine's scope lives as long as its frame).
 //
 // Before the frame's first paint (a layout effect): the reader's mark on <html> (data-reader, which
-// its stylesheet's document rules hold to), the names its page's head script sets (./reader/names.ts),
+// its stylesheet's document rules hold to), the names 1.3's page set from its head (./reader/names.ts),
 // the page's title, the frame's words in the person's language, and the engine started. Its stylesheet
-// (app/reader.css, the file its own page links) is in the document before the route draws: the route
+// (app/reader.css, the file 1.3's page linked) is in the document before the route draws: the route
 // table names it, and it comes with the route's chunk (build/start.mjs, vite.config.ts). Leaving, or
 // another gallery, stops the engine (it saves the place) and takes all of it away again.
 import { memo, useLayoutEffect, useRef } from 'react';

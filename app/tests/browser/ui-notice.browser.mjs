@@ -2,8 +2,8 @@
 // src/components/notice-host.tsx): on the one page each function is drawn with the app's Dialog and
 // Toast and answers as notice.js's own drawing did (OK, Cancel, Escape, the backdrop, Enter in the
 // prompt; ask() and the progress windows only by their buttons), focus starts where it did and goes
-// back; an operation locks the page behind it; a notice opens over a page's dialog. On a page that
-// is not React's, notice.js draws as it always has.
+// back; an operation locks the page behind it; a notice opens over a page's dialog. (Until the reader's
+// switch, 2026-11-26, the reader's own page, not React's, had notice.js draw by itself; no page does now.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, until, openPage } from './harness.mjs';
@@ -158,21 +158,5 @@ test('the toast, and a notice over a page\'s dialog', async (t) => {
   assert.equal(await page.evaluate(() => document.activeElement?.dataset.noticeCall), 'over');
   await page.keyboard.press('Escape');
   await until(page, () => !document.querySelector('[data-notice-page-dialog]'), null, { what: 'the page dialog closed' });
-  assert.deepEqual(page.problems, []);
-});
-
-test('a page that is not React\'s: notice.js draws its own', async (t) => {
-  if (!browser) { t.skip('Chrome not found'); return; }
-  // The reader's own page, whichever draws the reader in the other tests (READER_ROUTE): it is the page
-  // with a file of its own, where notice.js draws by itself (on the route the one page's notice host
-  // draws, as ui-notice's other tests hold).
-  const page = await openPage(browser, origin, { route: false });
-  t.after(() => page.close());
-  await page.goto(`${origin}/reader`, { waitUntil: 'load' });
-  await page.evaluate(() => { import('/app/js/notice.js').then((n) => n.confirmDialog({ title: 'Stop?' }).then((a) => { window.__answer = a; })); });
-  await page.waitForSelector('.notice-overlay .notice-modal.notice-dialog');
-  assert.equal(await page.$('[data-slot="dialog"]'), null);
-  await page.keyboard.press('Escape');
-  await until(page, () => window.__answer === false, null, { what: 'its answer' });
   assert.deepEqual(page.problems, []);
 });

@@ -112,7 +112,7 @@ test('a series overview lists its chapters by their own numbers', async (t) => {
 });
 
 test('the reader shows a gallery\'s pages', async (t) => {
-  const page = await visit(`/app/reader.html?g=${G.plain}`, t);
+  const page = await visit(`/reader?g=${G.plain}`, t);
   if (!page) return;
   await until(page, blobImages, null, { what: 'a page image' });
   assert.equal(await page.evaluate(() => /Loading cached pages/.test(document.body.innerText)), false);
@@ -120,7 +120,7 @@ test('the reader shows a gallery\'s pages', async (t) => {
 });
 
 test('the reader opens a translated gallery with its study layers', async (t) => {
-  const page = await visit(`/app/reader.html?g=${G.translated}`, t);
+  const page = await visit(`/reader?g=${G.translated}`, t);
   if (!page) return;
   await until(page, blobImages, null, { what: 'a page image' });
   await until(page, () => {
@@ -131,7 +131,7 @@ test('the reader opens a translated gallery with its study layers', async (t) =>
 });
 
 test('the reader reads a series across its chapters', async (t) => {
-  const page = await visit(`/app/reader.html?g=${G.a}`, t);
+  const page = await visit(`/reader?g=${G.a}`, t);
   if (!page) return;
   await until(page, blobImages, null, { what: 'a page image' });
   const text = await until(page, () => (/Ch\. 2\b/.test(document.body.innerText) ? document.body.innerText : 0), null, { what: 'the second chapter' });
@@ -202,7 +202,7 @@ test('a series lists its volumes apart, the choice is remembered, and a volume r
   await finish(library);
 
   const reader = await openPage(browser, origin);
-  await reader.goto(`${origin}/app/reader.html?g=${G.v1}`, { waitUntil: 'load' });
+  await reader.goto(`${origin}/reader?g=${G.v1}`, { waitUntil: 'load' });
   const text = await until(reader, () => (/Vol\. 2\b/.test(document.body.innerText) ? document.body.innerText : 0), null, { what: 'the volumes read in turn' });
   assert.doesNotMatch(text, /Ch\. \d/, 'no chapter among them');
   await finish(reader);

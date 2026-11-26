@@ -1,52 +1,3 @@
-<!DOCTYPE html>
-<html lang="en" data-reader>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hY3v5/hK8HEXGvbWdwpC9QwryUrAFnXUNYc6GOBIxBU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'">
-  <!-- Files live under /app/; pages are served at clean URLs (/reader). This base points the page's
-       files back at the app folder; the inline corrector makes it ./ for a direct load of
-       app/reader.html (no service worker), where the page's own folder is the app folder already.
-       The CSP allows exactly that script by hash. -->
-  <base href="app/">
-  <script>if (/\/app\/[^/]*$/.test(location.pathname)) document.querySelector('base').href = './';</script>
-  <link rel="icon" href="../icons/icon32.png">
-  <title>Shiori — Reader</title>
-  <script src="font-init.js"></script>
-  <script src="reader-init.js"></script>
-  <link rel="stylesheet" href="base.css">
-  <link rel="stylesheet" href="reader-aliases.css">
-  <link rel="stylesheet" href="reader.css">
-  <link rel="stylesheet" href="notice.css">
-  <!-- Preload the whole module graph in one parallel wave instead of a 4-level import waterfall. -->
-  <link rel="modulepreload" href="js/reader-page.js">
-  <link rel="modulepreload" href="js/reader.js">
-  <link rel="modulepreload" href="js/reader-study.js">
-  <link rel="modulepreload" href="js/reader-properties.js">
-  <link rel="modulepreload" href="js/reader-page-menu.js">
-  <link rel="modulepreload" href="js/boot.js">
-  <link rel="modulepreload" href="js/boot-core.js">
-  <link rel="modulepreload" href="js/i18n.js">
-  <link rel="modulepreload" href="js/locales.js">
-  <link rel="modulepreload" href="js/tooltip.js">
-  <link rel="modulepreload" href="js/dropdown.js">
-  <link rel="modulepreload" href="js/platform.js">
-  <link rel="modulepreload" href="js/services.js">
-  <link rel="modulepreload" href="js/db.js">
-  <link rel="modulepreload" href="js/image-util.js">
-  <link rel="modulepreload" href="js/sanitize.js">
-  <link rel="modulepreload" href="js/sites.js">
-  <link rel="modulepreload" href="js/store.js">
-  <link rel="modulepreload" href="js/series.js">
-  <link rel="modulepreload" href="js/translate.js">
-  <link rel="modulepreload" href="js/ext-bridge.js">
-  <link rel="modulepreload" href="js/submit-job.js">
-  <link rel="modulepreload" href="js/jobs-runner.js">
-  <link rel="modulepreload" href="js/import-cbz.js">
-  <meta name="shiori-app" content="reader">
-</head>
-<body>
-
 <div id="loadingScreen">
   <div class="spinner"></div>
   <div id="loadingText" data-i18n="rd.loading">Loading…</div>
@@ -447,7 +398,3 @@
     <div class="rs-picker" id="rsPicker" role="menu" hidden></div>
   </div>
 </div>
-
-<script type="module" src="js/reader-page.js"></script>
-</body>
-</html>

@@ -1,0 +1,33 @@
+{
+  "before": {
+    "address": "/overview?g=1795200000301",
+    "scroll": 320
+  },
+  "opened": {
+    "address": "/reader?g=1795200000301&page=7",
+    "counter": "7 / 24",
+    "title": "Shiori — #1795200000301"
+  },
+  "turned": {
+    "address": "/reader?g=1795200000301&page=9",
+    "counter": "9 / 24",
+    "title": "Shiori — #1795200000301"
+  },
+  "back": {
+    "address": "/overview?g=1795200000301",
+    "scroll": 320,
+    "frames": [
+      320
+    ]
+  },
+  "forward": {
+    "address": "/reader?g=1795200000301&page=9",
+    "counter": "9 / 24",
+    "title": "Shiori — #1795200000301"
+  },
+  "reloaded": {
+    "address": "/reader?g=1795200000301&page=9",
+    "counter": "9 / 24",
+    "title": "Shiori — #1795200000301"
+  }
+}

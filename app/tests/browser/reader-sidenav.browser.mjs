@@ -1,6 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch, openPage, until, READER_ROUTE } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
 // The reader's side navigation (Reader settings → Navigation → Side): the chapter pill, the column
 // of buttons, fit and zoom, hiding and showing them, auto-scroll, dimming, and page turns that only a
@@ -81,7 +81,7 @@ async function reader(t, { gallery = SINGLE, at = 1, mode = 'strip', fit = 'heig
 
 const settle = (ms = 400) => new Promise(resolve => setTimeout(resolve, ms));
 
-// The reader drawn by the one page (READER_ROUTE): no script of the reader's runs before the route draws
+// The reader drawn by the one page: no script of the reader's runs before the route draws
 // its frame, so what "before its script runs" asks of the reader's own page is asked there of every
 // frame the browser draws from the navigation on until a page is drawn: what `look` names, read in each
 // (a frame's paint follows its animation frame callbacks), from the first in which the frame is there.
@@ -142,27 +142,12 @@ test('the settings switch the reader between the top bar and the side controls, 
 });
 
 test('a reader set to the side controls never shows the top bar, not even before its script runs', { skip: !chromePath() }, async t => {
-  if (READER_ROUTE) {
-    for (const side of [true, false]) {
-      const page = await openPage(browser, origin);
-      t.after(() => page.close());
-      const frames = await framesUntilDrawn(page, 'top bar shown', { 'shiori-reader-nav': side ? 'side' : 'top' });
-      assert.ok(frames.length > 0, 'frames recorded');
-      assert.deepEqual([...new Set(frames)], [!side], side ? 'the top bar showed in a frame' : 'the top bar should show in every frame');
-    }
-    return;
-  }
   for (const side of [true, false]) {
-    // The reader's own script held back: what the page shows before it runs (the first paint can).
-    const page = await browser.newPage();
+    const page = await openPage(browser, origin);
     t.after(() => page.close());
-    await page.setBypassServiceWorker(true);
-    await page.setRequestInterception(true);
-    page.on('request', req => (req.url().includes('/app/js/') ? req.abort() : req.continue()));
-    await page.evaluateOnNewDocument(side => localStorage.setItem('shiori-reader-nav', side ? 'side' : 'top'), side);
-    await page.goto(`${origin}/reader?g=${SINGLE}&page=1`, { waitUntil: 'load' });
-    const shown = await page.$eval('#topbar', el => getComputedStyle(el).display !== 'none');
-    assert.equal(shown, !side, side ? 'the top bar showed before the side controls took over' : 'the top bar should show');
+    const frames = await framesUntilDrawn(page, 'top bar shown', { 'shiori-reader-nav': side ? 'side' : 'top' });
+    assert.ok(frames.length > 0, 'frames recorded');
+    assert.deepEqual([...new Set(frames)], [!side], side ? 'the top bar showed in a frame' : 'the top bar should show in every frame');
   }
 });
 
@@ -1287,30 +1272,13 @@ test('fit and zoom hide with the controls, and come back with the navigation or 
 });
 
 test('hidden from the start, fit and zoom never show before the reader has set itself up', { skip: !chromePath() }, async t => {
-  if (READER_ROUTE) {
-    for (const side of [true, false]) {
-      const page = await openPage(browser, origin);
-      t.after(() => page.close());
-      const frames = await framesUntilDrawn(page, 'zoom opacity',
-        { 'shiori-reader-nav': side ? 'side' : 'top', [side ? 'shiori-reader-side-pin' : 'shiori-reader-pin']: '0' });
-      assert.ok(frames.length > 0, 'frames recorded');
-      assert.deepEqual([...new Set(frames)], ['0'], side ? 'modern, hidden' : 'classic, unpinned');
-    }
-    return;
-  }
   for (const side of [true, false]) {
-    // The reader's own script held back: what the page shows before it runs.
-    const page = await browser.newPage();
+    const page = await openPage(browser, origin);
     t.after(() => page.close());
-    await page.setBypassServiceWorker(true);
-    await page.setRequestInterception(true);
-    page.on('request', req => (req.url().includes('/app/js/') ? req.abort() : req.continue()));
-    await page.evaluateOnNewDocument(side => {
-      localStorage.setItem('shiori-reader-nav', side ? 'side' : 'top');
-      localStorage.setItem(side ? 'shiori-reader-side-pin' : 'shiori-reader-pin', '0');
-    }, side);
-    await page.goto(`${origin}/reader?g=${SINGLE}&page=1`, { waitUntil: 'load' });
-    assert.equal(await page.$eval('#sideZoom', el => getComputedStyle(el).opacity), '0', side ? 'modern, hidden' : 'classic, unpinned');
+    const frames = await framesUntilDrawn(page, 'zoom opacity',
+      { 'shiori-reader-nav': side ? 'side' : 'top', [side ? 'shiori-reader-side-pin' : 'shiori-reader-pin']: '0' });
+    assert.ok(frames.length > 0, 'frames recorded');
+    assert.deepEqual([...new Set(frames)], ['0'], side ? 'modern, hidden' : 'classic, unpinned');
   }
 });
 

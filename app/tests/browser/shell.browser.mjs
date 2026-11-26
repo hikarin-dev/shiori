@@ -161,6 +161,14 @@ test('with the worker installed and the server gone, the library and the one pag
   await page.goto(`${site.origin}/`, { waitUntil: 'load' });
   await workerHoldsAll(page);
   assert.deepEqual(page.problems, [], 'nothing went wrong while the server was there');
+  // A gallery to read once the server has gone.
+  await page.evaluate(async () => {
+    const api = await import('/app/js/api.js');
+    const c = new OffscreenCanvas(300, 430);
+    c.getContext('2d').fillRect(0, 0, 300, 430);
+    await api.meta.put({ galleryId: '1790000000901', title: { english: 'Offline', japanese: '', pretty: '' }, tags: [], numPages: 2 });
+    for (const n of [1, 2]) await api.pages.put('1790000000901', n, await c.convertToBlob({ type: 'image/png' }));
+  });
 
   site.server.close();
   site.server.closeAllConnections();
@@ -188,6 +196,15 @@ test('with the worker installed and the server gone, the library and the one pag
   await page.goto(`${site.origin}/settings`, { waitUntil: 'load' });
   await until(page, () => document.title === 'Shiori — Settings' && !!document.getElementById('clearAllBtn'), undefined, { what: 'Settings, offline' });
   assert.equal(await page.evaluate(address), '/settings');
+  // The reader, which the worker installs (since its switch, 2026-11-26; until then its own page and its
+  // modules were in the list): a gallery read, its stylesheet and its page drawn, offline.
+  assert.ok(SHELL.some((f) => /^assets\/reader-[\w-]+\.js$/.test(f)), 'the reader\'s chunk is in the list');
+  await page.goto(`${site.origin}/reader?g=1790000000901&page=2`, { waitUntil: 'load' });
+  await until(page, () => [...document.querySelectorAll('#stripView img[src], #mainImg, .dImg')].some((img) => img.naturalWidth > 0)
+    && getComputedStyle(document.getElementById('loadingScreen')).display === 'none' && /^2\s*\/\s*2$/.test(document.getElementById('pageCounter').textContent.trim()),
+  undefined, { what: 'the reader, offline' });
+  assert.equal(await page.evaluate(address), '/reader?g=1790000000901&page=2');
+  assert.deepEqual(page.problems.filter((problem) => /policy/.test(problem)), [], 'nothing refused by the page\'s policy');
 });
 
 test('the comparison page, not installed, opens with the network and is kept from then on', async (t) => {
@@ -230,11 +247,12 @@ test('with the worker installed, a hard reload of a clean address the host doesn
 // An old page's file the one page now draws the address of (app/js/pages.js, MOVED): the worker sends a
 // navigation to it on to that address, with the server gone; a host that knows no clean addresses
 // answers it with 404.html, which brings it to the one page at that address. Each asked with a query its
-// page keeps (the library writes back only page, q and sort, as 1.3's syncUrl did; the overview reads g),
-// and known by its title (the overview's is 1.3's, "Series") and the page drawn.
-const QUERY = { overview: '?g=1790000000001&q=1' };
-const TITLE = { overview: 'Series' };
-const pageDrawn = () => !!document.getElementById('root')?.querySelector('main, #ovContent');
+// page keeps (the library writes back only page, q and sort, as 1.3's syncUrl did; the overview reads g;
+// the reader g and page), and known by its title (the overview's is 1.3's, "Series"; the reader's, of a
+// gallery it doesn't have, its number) and the page drawn.
+const QUERY = { overview: '?g=1790000000001&q=1', reader: '?g=1790000000001&page=3' };
+const TITLE = { overview: 'Series', reader: '#1790000000001' };
+const pageDrawn = () => !!document.getElementById('root')?.querySelector('main, #ovContent, .reader-frame #emptyScreen');
 
 test('with the worker installed, an old page\'s file opens its page at its clean address, the worker answering', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }

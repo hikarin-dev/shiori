@@ -95,44 +95,10 @@ test("a full backup is saved as one file by the browser's downloads, and restore
   await page.close();
 });
 
-// (notice.js's own drawing, on a page that has a file of its own: the reader's, with no gallery. Until
-// 2026-11-25 this ran on 1.3's library page.)
+// The operation's window as the one page's notice host draws it (src/lib/notice-store.ts; until the
+// reader's switch, 2026-11-26, this held notice.js's own drawing, on the reader's page, and until
+// 2026-11-25 on 1.3's library page): the page behind it held while a backup runs.
 test('while a backup runs the page behind it is held: no keys, no focus, no drops, no leaving unasked', { skip: !chromePath() }, async () => {
-  // The reader's own page, whichever draws the reader in the other tests (READER_ROUTE): notice.js's own
-  // drawing is what this holds.
-  const page = await openPage(browser, origin, { route: false });
-  await page.goto(`${origin}/reader`, { waitUntil: 'load' });
-  const held = await page.evaluate(async () => {
-    const { showOperation } = await import('/app/js/notice.js');
-    let heard = 0;
-    document.addEventListener('keydown', () => { heard++; }, true);
-    document.addEventListener('drop', () => { heard++; }, true);
-    const op = showOperation({ title: 'Working', stopLabel: 'Cancel' });
-    op.update({ done: 3, total: 10, lines: ['3 of 10', ''] });
-    const inertBehind = [...document.body.children].filter(el => !el.classList.contains('notice-overlay')).every(el => el.inert);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
-    const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() });
-    document.body.dispatchEvent(drop);
-    const leave = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(leave);
-    const bar = document.querySelector('.notice-operation [role=progressbar]');
-    // Focus lost to the page: Tab brings it back to the box's button.
-    document.activeElement?.blur();
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
-    const backInBox = document.activeElement?.textContent === 'Cancel';
-    const out = { inertBehind, heard, dropRefused: drop.defaultPrevented, leaveAsked: leave.defaultPrevented, now: bar?.getAttribute('aria-valuenow'), backInBox };
-    op.close();
-    out.released = [...document.body.children].every(el => !el.inert);
-    return out;
-  });
-  assert.deepEqual(held, { inertBehind: true, heard: 0, dropRefused: true, leaveAsked: true, now: '30', backInBox: true, released: true });
-  assert.deepEqual(page.problems, []);
-  await page.close();
-});
-
-// The same lock as the one page's notice host draws the operation's window (src/lib/notice-store.ts), on a
-// page the one page draws: the page behind it held while a backup runs, as above.
-test('the one page: while a backup runs the page behind it is held: no keys, no focus, no drops, no leaving unasked', { skip: !chromePath() }, async () => {
   const page = await openPage(browser, origin);
   await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
   await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });

@@ -8,12 +8,14 @@
 // shows on the library's card on Back, now with no reload; a download's job begun on a card is drawn on the
 // overview's row, and one going on there on the card on Back. What it was is the record
 // (records/<this file>.<table>.json, records.mjs), measured on 2026-11-25 with 1.3's overview, three
-// runs the same; a deliberate change of either page's behaviour edits it in the same commit.
+// runs the same; a deliberate change of either page's behaviour edits it in the same commit. And the
+// reader opened from the overview, held to what 1.3's reader page did (the section at the end, its
+// records measured on 2026-11-26).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startServer, chromePath, launch, openPage, until, READER_PATH } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 import { record } from './records.mjs';
 import { standInHelper, HELPER_STATUS } from './stand-in-helper.mjs';
 import { librarySettled } from './library-drive.mjs';
@@ -168,22 +170,14 @@ test('the overview\'s own scroll is kept on Back from the reader', async (t) => 
   await page.evaluate(() => { scrollTo(0, 1500); window.__mark = 'kept'; });
   await sleep(400);
   const before = await overview(page);
-  // The browser may let a document it kept for Back go (its reason not told: "masked"); then the page is
-  // loaded again at the top, 1.3's as the one page (both measured with the browser keeping none). Seen
-  // under a whole suite's load, 1 time in 6 with six copies at once: the round trip is made again then,
-  // at most three times, the document marked anew each time.
-  let back;
-  for (let round = 1; round <= 3; round++) {
-    await follow(page, '.ch-row:nth-child(30) .ch-title-open');
-    await until(page, (path) => location.pathname.endsWith(path) && !!document.getElementById('topbar'), READER_PATH, { what: 'the reader' });
-    await page.goBack();
-    await overviewSettles(page, L);
-    await sleep(600);
-    back = { ...(await overview(page)), kept: await kept(page) };
-    if (back.kept || round === 3) break;
-    await page.evaluate(() => { scrollTo(0, 1500); window.__mark = 'kept'; });
-    await sleep(400);
-  }
+  // (Until the reader's switch, 2026-11-26, the reader was a load and Back the document the browser had
+  // kept, which it sometimes let go under load: the round trip was made again then. Now a change of route.)
+  await follow(page, '.ch-row:nth-child(30) .ch-title-open');
+  await until(page, () => location.pathname === '/reader' && !!document.getElementById('topbar'), null, { what: 'the reader' });
+  await page.goBack();
+  await overviewSettles(page, L);
+  await sleep(600);
+  const back = { ...(await overview(page)), kept: await kept(page) };
   const now = { before, back };
   const was = record(FILE, 'reader-back');
   assert.deepEqual(now, was);
@@ -468,4 +462,140 @@ test('Back to a series\' overview finds its covers in its first frame, the hero\
   }
   assert.equal(await kept(page), true, 'the same document throughout');
   assert.deepEqual(page.problems, []);
+});
+
+// ── The reader, from the overview ──
+// Overview → reader → Back is the commonest path of reading. Until the reader's switch (2026-11-26) the
+// reader was a page with a file of its own: a page tile, a row's title or Read loaded it, and Back brought
+// the overview's document back from the browser's keeping; since, it is a change of route in the one
+// page. What 1.3's reader page gave is the record (measured at the tree before the switch, three runs the
+// same): the address, the page and the scroll at each step. Whether a step was a load is the one page's
+// own (`kept`: it keeps its document throughout), asserted apart.
+
+// In every document of the page, from its start: the page's scroll in each of the 40 frames from the
+// moment it is shown again by Back or Forward (a change of route, a document the browser kept, or one
+// loaded again by them).
+function watchReturn() {
+  const start = () => {
+    const seen = (window.__returned = []);
+    const tick = () => { seen.push(Math.round(scrollY)); if (seen.length < 40) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  };
+  addEventListener('popstate', start);
+  addEventListener('pageshow', (e) => { if (e.persisted) start(); });
+  if (performance.getEntriesByType('navigation')[0]?.type === 'back_forward') start();
+}
+// A gallery of `pages` pages, made by the test that reads it (the library the tests above are held to
+// stays theirs).
+const pagesGallery = (page, gid, pages) => page.evaluate(async ({ gid, pages }) => {
+  const api = await import('/app/js/api.js');
+  const c = new OffscreenCanvas(400, 570), x = c.getContext('2d');
+  await api.meta.put({ galleryId: gid, title: { english: 'Pages to read', japanese: '', pretty: '' }, tags: [], numPages: pages });
+  for (let p = 1; p <= pages; p++) { x.fillStyle = `hsl(${p * 15} 60% 50%)`; x.fillRect(0, 0, 400, 570); await api.pages.put(gid, p, await c.convertToBlob({ type: 'image/png' })); }
+}, { gid, pages });
+const READER_SETTINGS = { 'shiori-reader-nav': 'top', 'shiori-reader-pin': '1', 'shiori:readerMode': '"single"', 'shiori:readerThumbsOpen': 'false' };
+// The reader once it shows page `n`: its address, its counter, its title.
+const readerAt = async (page, n) => {
+  await until(page, (n) => !!document.getElementById('topbar') && document.getElementById('pageCounter').textContent.trim().startsWith(`${n} `)
+    && document.getElementById('mainImg')?.naturalWidth > 0 && getComputedStyle(document.getElementById('loadingScreen')).display === 'none', n, { what: `the reader at page ${n}` });
+  return page.evaluate(() => ({ address: location.pathname + location.search, counter: document.getElementById('pageCounter').textContent.replace(/\s+/g, ' ').trim(), title: document.title }));
+};
+
+test('a page tile opens the reader at its page; Back lands on the overview at its scroll in every frame; Forward finds the reader where it was left, and a reload draws it there', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const G = String(BASE + 301), PAGES = 24;
+  const page = await open('/tasks', { viewport: { width: 1280, height: 420 } });
+  t.after(() => page.close());
+  await page.evaluateOnNewDocument(watchReturn);
+  await page.evaluateOnNewDocument((stored) => { for (const [k, v] of Object.entries(stored)) localStorage.setItem(k, v); }, READER_SETTINGS);
+  await pagesGallery(page, G, PAGES);
+  await page.goto(`${origin}${OVERVIEW}?g=${G}`, { waitUntil: 'load' });
+  const drawn = async () => {
+    await overviewSettles(page, G);
+    await until(page, (n) => document.querySelectorAll('#ovPages > .ov-page').length === n, PAGES, { what: 'the grid\'s tiles' });
+  };
+  await drawn();
+  await page.evaluate(() => { scrollTo(0, 320); window.__mark = 'kept'; });
+  await sleep(400);
+  const before = await page.evaluate(() => ({ address: location.pathname + location.search, scroll: Math.round(scrollY) }));
+  await follow(page, '#ovPages > .ov-page:nth-child(7)');
+  const opened = await readerAt(page, 7);
+  const openedKept = await kept(page);
+  for (let i = 0; i < 2; i++) { await page.keyboard.press('ArrowRight'); await sleep(150); }
+  await sleep(400);   // the address follows the page (at most every 100 ms)
+  const turned = await readerAt(page, 9);
+  await page.goBack();
+  await drawn();
+  await sleep(600);
+  const back = await page.evaluate(() => ({ address: location.pathname + location.search, scroll: Math.round(scrollY),
+    frames: window.__returned ? [...new Set(window.__returned)] : null }));
+  const backKept = await kept(page);
+  await page.goForward();
+  const forward = await readerAt(page, 9);
+  await page.reload({ waitUntil: 'load' });
+  const reloaded = await readerAt(page, 9);
+  const now = { before, opened, turned, back, forward, reloaded };
+  const was = record(FILE, 'reader-tile');
+  assert.deepEqual(now, was);
+  assert.deepEqual(was.back, { address: was.before.address, scroll: was.before.scroll, frames: [was.before.scroll] }, 'the overview as it was left, in every frame');
+  assert.deepEqual([openedKept, backKept], [true, true], 'into the reader and Back with no load: changes of route');
+  assert.deepEqual(page.problems, []);
+});
+
+// A job begun in the reader (a page's translation, as its page menu starts one: its first word published by
+// the reader's tab) is drawn on the overview's row on Back and on the library's card on Back again; its tag
+// on Tasks names the page the tab showed as it was published (runner.page, read from the address each time
+// it is asked for: a tab that came into the reader by a change of route says the reader).
+test('a job begun in the reader is drawn on the overview\'s row and the library\'s card on Back; its tag names the reader', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  // A series of its own (the tests above edit and delete the seeded one's chapters).
+  const R = String(BASE + 400), R2 = String(BASE + 401), R3 = String(BASE + 402);
+  const page = await open('/tasks');
+  const tasks = await openPage(browser, origin);
+  const clear = (p) => p.evaluate(async () => { const platform = await import('/app/js/platform.js'); for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind); });
+  t.after(async () => { await clear(page).catch(() => {}); await tasks.close(); await page.close(); });
+  await page.evaluateOnNewDocument((stored) => { for (const [k, v] of Object.entries(stored)) localStorage.setItem(k, v); }, READER_SETTINGS);
+  await page.evaluate(async (ids) => {
+    const api = await import('/app/js/api.js');
+    const c = new OffscreenCanvas(400, 570), x = c.getContext('2d');
+    for (const [i, id] of ids.entries()) {
+      await api.meta.put({ galleryId: id, title: { english: `Reading ${i + 1}`, japanese: '', pretty: '' }, tags: [], numPages: 2, source: 'a.example', sourceId: String(970 + i) });
+      for (let p = 1; p <= 2; p++) { x.fillStyle = `hsl(${i * 90 + p * 20} 60% 50%)`; x.fillRect(0, 0, 400, 570); await api.pages.put(id, p, await c.convertToBlob({ type: 'image/png' })); }
+    }
+    await api.series.write(ids[0], ids.map((id, i) => ({ id, title: '', number: i + 1 })), { seriesTitle: { english: 'A series to read', japanese: '', pretty: '' } });
+    await (await import('/app/js/migrations.js')).runMigrations();
+  }, [R, R2, R3]);
+  await page.goto(`${origin}/?q=Reading`, { waitUntil: 'load' });
+  await librarySettles(page);
+  await clear(page);
+  await tasks.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await page.bringToFront();
+  await page.evaluate(() => { window.__mark = 'kept'; });
+  const label = (sel) => page.evaluate((sel) => { const el = document.querySelector(sel); return el ? el.textContent.replace(/\s+/g, ' ').trim() : null; }, sel);
+  const publish = (job) => page.evaluate(async (job) => (await import('/app/js/platform.js')).jobs.publish(job), job);
+  const runnerPage = () => page.evaluate(async () => (await import('/app/js/platform.js')).runner.page);
+  const tagOn = (key, text) => until(tasks, ({ key, text }) => { const el = document.querySelector(`.tk-row[data-key="${key}"] .run-tag`); return el && !el.hidden && el.textContent && (!text || el.textContent === text) ? el.textContent : 0; }, { key, text }, { what: `the row's tag${text ? ` (${text})` : ''}`, timeout: 5000 });
+  await follow(page, `#grid > .card[data-gallery-id="${R}"] .card-thumb-wrap`);
+  await overviewSettles(page, R);
+  await follow(page, `.ch-row[data-chapter-id="${R2}"] .ch-title-open`);
+  const reading = await readerAt(page, 1);
+  await publish({ gid: R2, kind: 'translate', status: 'progress', pct: 40, labelKey: 'prog.translating' });
+  const begun = { runner: await runnerPage(), tag: await tagOn(`${R2}:translate`) };
+  await page.goBack();
+  await overviewSettles(page, R);
+  await until(page, (g) => !!document.querySelector(`.ch-row[data-chapter-id="${g}"].working`), R2, { what: 'the row\'s job' });
+  await sleep(300);
+  const row = await label(`.ch-row[data-chapter-id="${R2}"] .ch-prog-label`);
+  // A word more, published by the tab now on the overview: its tag says so.
+  await publish({ gid: R2, kind: 'translate', status: 'progress', pct: 60, labelKey: 'prog.translating' });
+  const onOverview = { runner: await runnerPage(), tag: await tagOn(`${R2}:translate`, 'Tab · Overview').catch(() => tagOn(`${R2}:translate`)) };
+  await page.goBack();
+  await librarySettles(page);
+  await sleep(600);
+  const card = await label(`#grid > .card[data-gallery-id="${R}"] .card-prog-label`);
+  const now = { reading, begun, row, onOverview, card };
+  const was = record(FILE, 'reader-job');
+  assert.deepEqual(now, was);
+  assert.equal(await kept(page), true, 'one document throughout: changes of route');
+  assert.deepEqual([page.problems, tasks.problems], [[], []]);
 });

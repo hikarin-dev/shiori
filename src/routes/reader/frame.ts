@@ -1,17 +1,12 @@
-// reader/frame.ts — the reader's frame as the one page draws it: the markup app/reader.html has in its
-// <body>, taken from that file as the build reads it (one source for both pages, while the reader's own
-// page exists), with the ids, words and attributes it has there. Two things differ, both the page's own:
-// its module script is left out (the route starts the engine), and the addresses that page's
-// <base href="app/"> resolves are written for this page's base, the site's root (`../x` there is `./x`
-// here: the same address, at a domain's root and under a folder).
-import page from '../../../app/reader.html?raw';
+// reader/frame.ts — the reader's frame as the one page draws it: the markup 1.3's reader page had in its
+// <body> (app/reader.html until 2026-11-26), kept as it was in ./frame.html beside the route, with the ids,
+// words and attributes the engine and the reader's tests drive, and read by the build as text. One thing
+// differs from 1.3's page, its own: the addresses that page's <base href="app/"> resolved are written for
+// this page's base, the site's root (`../x` there is `./x` here: the same address, at a domain's root and
+// under a folder).
+import markup from './frame.html?raw';
 
-const open = page.indexOf('>', page.indexOf('<body')) + 1;
-const close = page.lastIndexOf('</body>');
-if (open <= 0 || close < open) throw new Error('app/reader.html has no body');
-const body = page.slice(open, close)
-  .replace(/\s*<script\b[^>]*>\s*<\/script>\s*$/, '\n')
-  .replace(/(\s(?:href|src))="\.\.\//g, '$1="./');
+const body = markup.replace(/(\s(?:href|src))="\.\.\//g, '$1="./');
 
 // As React's dangerouslySetInnerHTML takes it: one object, so the frame is drawn once and never again.
 export const FRAME = Object.freeze({ __html: body });

@@ -47,7 +47,7 @@ const settle = (page) => page.evaluate(async () => {
 
 test('no rule of the reader\'s sheets is used on any route of the one page, its sheets in the document', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
-  const sheets = readerSheets().map((href) => `/app/${href}`);
+  const sheets = readerSheets().map((path) => `/${path}`);
   assert.ok(sheets.includes('/app/reader.css'));
   const page = await openPage(browser, origin, { onePage: sheets });
   t.after(() => page.close());

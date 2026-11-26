@@ -22,9 +22,8 @@ after(async () => { await browser?.close(); server?.close(); });
 const START = () => JSON.parse(readFileSync(join(builtSite(), 'start.js'), 'utf8').match(/const START = (\{.*\});/)[1]);
 
 // A page in a context of its own whose requests are recorded (`page.asked`: url → resource type), with
-// the bundle's entry held back until `page.release()`; `answers`: the file every clean address is
-// answered with, as a host that answers each with the one page.
-async function fresh(t, { size = { width: 1280, height: 900 }, answers = null } = {}) {
+// the bundle's entry held back until `page.release()`.
+async function fresh(t, { size = { width: 1280, height: 900 } } = {}) {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return null; }
   const context = await browser.createBrowserContext();
   t.after(() => context.close());
@@ -41,7 +40,6 @@ async function fresh(t, { size = { width: 1280, height: 900 }, answers = null } 
     }).observe({ type: 'layout-shift', buffered: true });
   });
   const entry = `${origin}/${START().entry}`;
-  const body = answers && readFileSync(join(builtSite(), answers));
   let held = null, released = false;
   page.asked = [];
   page.release = () => { released = true; held?.continue(); held = null; };
@@ -49,9 +47,7 @@ async function fresh(t, { size = { width: 1280, height: 900 }, answers = null } 
   page.on('request', (request) => {
     const url = request.url();
     page.asked.push({ url: url.replace(origin, ''), type: request.resourceType() });
-    if (answers && request.isNavigationRequest() && /^\/[a-z]+$/.test(new URL(url).pathname)) {
-      request.respond({ status: 200, contentType: 'text/html', body });
-    } else if (url === entry && !released) held = request;
+    if (url === entry && !released) held = request;
     else if (url.startsWith(origin)) request.continue();
     else request.abort();
   });
@@ -242,34 +238,25 @@ test('the library says it is the library in the shiori-app meta from its first p
   }
 });
 
-test('where the page hands the visitor on (the reader\'s address), no frame shows and none of the app is fetched', async (t) => {
-  const page = await fresh(t, { answers: 'index.html' });   // a host answering every address with the one page
-  if (!page) return;
-  await page.goto(`${origin}/reader?g=1`, { waitUntil: 'domcontentloaded' });
-  await until(page, () => performance.getEntriesByType('paint').length > 0 || document.readyState === 'complete', undefined, { what: 'the page parsed' });
-  const held = await page.evaluate(() => ({ ...(() => { const h = document.querySelector('#root > header'); return { frame: document.documentElement.dataset.frame ?? null, shown: getComputedStyle(h).display !== 'none' }; })(),
-    preloads: document.querySelectorAll('link[rel=modulepreload], link[rel=preload]').length }));
-  assert.deepEqual(held, { frame: null, shown: false, preloads: 0 });
-  page.release();
-  await until(page, () => location.pathname === '/app/reader.html', undefined, { what: 'the reader\'s own file' });
-  const before = page.asked.slice(0, page.asked.findIndex((r) => r.url.startsWith('/app/reader.html')));
-  const scripts = before.filter((r) => r.type === 'script').map((r) => r.url);
-  const { entry, start } = START();
-  assert.ok(scripts.includes(`/${entry}`), 'the entry ran: it handed on');
-  // What the entry imports statically it needs to run at all (the address map, the code that decides;
-  // the build may put the latter in a chunk of its own when the app shares it).
-  const own = [];
-  const visit = (file) => {
-    for (const [, spec] of readFileSync(join(builtSite(), file), 'utf8').matchAll(/(?:\bfrom|\bimport)\s*["'`](\.{1,2}\/[^"'`]+)["'`]/g)) {
-      const url = new URL(spec, `${origin}/${file}`).pathname;
-      if (!own.includes(url)) { own.push(url); visit(url.slice(1)); }
-    }
-  };
-  visit(entry);
-  assert.ok(own.some((url) => url === '/app/js/pages.js'), 'the entry reads the address map');
-  assert.ok(own.length <= 4, `a few small files: ${own}`);
-  assert.deepEqual(scripts.filter((url) => start.includes(url.slice(1))).filter((url) => !own.includes(url)), [],
-    'nothing of the app, the start-up or a route: only what the entry needs to decide');
+// The reader, drawn by the one page since its switch (2026-11-26; until then the one address this page
+// handed on, to the reader's own file, and the only one, so the case went with it): it says it is the
+// reader from its first parse, as 1.3's page said it in its markup, and until the reader draws its frame
+// the window shows the reader's ground and nothing else (html[data-frame="reader"]: no header band).
+test('the reader says it is the reader in the shiori-app meta from its first parse, and shows its ground before the app runs, as on 1.3', async (t) => {
+  for (const path of ['/reader?g=1', '/reader?g=1&page=3']) {
+    const page = await fresh(t);
+    if (!page) return;
+    await page.goto(`${origin}${path}`, { waitUntil: 'domcontentloaded' });
+    await until(page, () => performance.getEntriesByType('paint').length > 0, undefined, { what: 'the first paint' });
+    const held = await page.evaluate(() => ({ app: !!document.querySelector('#root .reader-frame'), meta: [...document.querySelectorAll('meta[name="shiori-app"]')].map((m) => m.content),
+      frame: document.documentElement.dataset.frame ?? null, ground: getComputedStyle(document.body).backgroundColor, header: getComputedStyle(document.querySelector('#root > header')).display }));
+    assert.deepEqual(held, { app: false, meta: ['reader'], frame: 'reader', ground: 'rgb(10, 10, 12)', header: 'none' }, `${path}: before the app runs (its entry held back)`);
+    page.release();
+    await until(page, () => document.title.startsWith('Shiori — ') && !!document.querySelector('#root > .reader-frame #emptyScreen'), undefined, { what: 'the reader drawn' });
+    assert.deepEqual(await page.evaluate(() => ({ meta: [...document.querySelectorAll('meta[name="shiori-app"]')].map((m) => m.content), frame: document.documentElement.dataset.frame ?? null,
+      ground: getComputedStyle(document.body).backgroundColor })), { meta: ['reader'], frame: null, ground: 'rgb(10, 10, 12)' }, `${path}: drawn, its own ground`);
+    assert.deepEqual(page.problems, []);
+  }
 });
 
 test('a hard load of /components asks for every module it runs at once, by the list, and for none the list did not name', async (t) => {

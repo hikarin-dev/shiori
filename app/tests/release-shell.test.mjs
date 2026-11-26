@@ -66,10 +66,10 @@ test('what the worker leaves out is the bundle\'s files only routes it doesn\'t 
   const start = startData();
   const leftOut = notInstalled(start, ROUTES);
   const uninstalled = Object.entries(ROUTES).filter(([, route]) => !route.installed).map(([segment]) => segment);
-  // Today two such routes: the comparison page, and the reader at its interim address; their chunks are
-  // left out. The library's, Settings' and the overview's are installed.
-  assert.deepEqual(uninstalled, ['components', 'reader-next']);
-  assert.ok(leftOut.some((f) => /^assets\/reader-[\w-]+\.js$/.test(f)), 'the reader\'s chunk (beside 1.3\'s page until it takes /reader)');
+  // Today one such route: the comparison page; its chunk is left out. The library's, Settings', the
+  // overview's and the reader's are installed.
+  assert.deepEqual(uninstalled, ['components']);
+  assert.ok(!leftOut.some((f) => /^assets\/reader-[\w-]+\.js$/.test(f)), 'the reader\'s chunk is installed');
   assert.ok(leftOut.some((f) => /^assets\/components-[\w-]+\.js$/.test(f)), 'the comparison page\'s chunk');
   assert.ok(!leftOut.some((f) => /^assets\/overview-[\w-]+\.js$/.test(f)), 'the overview\'s chunk is installed');
   assert.ok(!leftOut.some((f) => /^assets\/library-[\w-]+\.js$/.test(f)), 'the library\'s chunk is installed');
@@ -139,28 +139,13 @@ test('the bundle carries no font file: the UI font comes from app/fonts/, at the
   assert.match(readFileSync(built('index.html'), 'utf8'), /<script src="app\/font-init\.js"/, 'the one page declares the faces as every page does');
 });
 
-// Clean-URL segments the service worker / 404.html serve — not files.
-const CLEAN = new Set(Object.keys(PAGES));
-
-test('app pages resolve their assets when loaded directly (no service worker)', () => {
-  // Every page that still has a file of its own (app/js/pages.js); a page the one page draws has none.
+test('no page has a file of its own: every old page\'s file is gone', () => {
+  // Every address is the one page's (app/js/pages.js) since the reader's switch (2026-11-26; until then the
+  // reader's page, app/reader.html, resolved its assets through its <base> and a corrector for a direct
+  // load of its file, held here).
   const own = [...new Set(Object.values(PAGES))].filter((file) => file !== APP_PAGE);
-  assert.deepEqual(own, ['app/reader.html'], 'the page not ported yet');
+  assert.deepEqual(own, []);
   for (const old of Object.keys(MOVED)) assert.ok(!existsSync(built(old)), `${old} moved to /${MOVED[old]}: its file is gone`);
-  for (const file of own) {
-    const page = file.replace(/^app\/|\.html$/g, '');
-    const html = readFileSync(built(file), 'utf8');
-    assert.match(html, /document\.querySelector\('base'\)\.href = '\.\/'/,
-      `${page}.html lacks the runtime base corrector for direct file loads`);
-    for (const [, url] of html.replace(/<base [^>]*>/g, '').matchAll(/(?:src|href)="([^"]+)"/g)) {
-      if (/^(https?:|\/\/|data:|#|mailto:)/.test(url)) continue;
-      const bare = url.replace(/[?#].*$/, '');
-      // <base> points at the app folder in both serve modes; ../ climbs to the site root.
-      const rel = bare.startsWith('../') ? bare.slice(3) : `app/${bare}`;
-      if (CLEAN.has(rel.replace(/\/$/, ''))) continue;
-      assert.ok(existsSync(built(rel)), `${page}.html references ${url} → ${rel}, which is missing`);
-    }
-  }
 });
 
 test('the one page resolves its assets from the site\'s root, at every address it answers', () => {

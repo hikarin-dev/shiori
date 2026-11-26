@@ -61,13 +61,15 @@ test('the entry page has no inline script at all', () => {
   assert.match(readFileSync(join(builtSite(), 'start.js'), 'utf8'), /"entry":"assets\/[^"]+\.js"/, 'which starts the bundle');
 });
 
+// 1.3's pages' policy (the reader's page, the last with a file of its own, until 2026-11-26), less the hash
+// of that page's one inline script.
+const PAGES_POLICY = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' data: blob: http: https: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'";
+
 test('the built one page carries the policy of the app\'s other pages', () => {
-  // The same policy as a page with a file of its own, less that page's hash (the build writes it:
-  // the dev server's page needs inline scripts, so the page as written has none).
-  const own = policyOf(readFileSync(join(repo, 'app', 'reader.html'), 'utf8'));
-  assert.match(own, / 'sha256-[^']+'/, 'a page with an inline script pins it');
+  // The same policy as 1.3's pages had, less a page's hash (the build writes it: the dev server's page
+  // needs inline scripts, so the page as written has none).
   const policy = policyOf(builtPage());
-  assert.equal(policy, own.replace(/ 'sha256-[^']+'/, ''));
+  assert.equal(policy, PAGES_POLICY);
   assert.match(policy, /(?:^|; )script-src 'self'(?:;|$)/, 'scripts from the site only');
   // It must come before the first script it is to hold.
   assert.ok(builtPage().indexOf('Content-Security-Policy') < builtPage().indexOf('<script'), 'the policy precedes every script');

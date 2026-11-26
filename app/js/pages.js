@@ -14,11 +14,10 @@ export const PAGES = Object.freeze({
   '': APP_PAGE,
   library: APP_PAGE,
   settings: APP_PAGE,
-  reader: 'app/reader.html',
+  reader: APP_PAGE,
   overview: APP_PAGE,
   tasks: APP_PAGE,
   components: APP_PAGE,
-  'reader-next': APP_PAGE,   // the reader as the one page draws it, until it answers 'reader'
 });
 
 // The files of pages the one page now draws, gone with their port, by the address each moved to: a
@@ -28,6 +27,7 @@ export const MOVED = Object.freeze({
   'app/settings.html': 'settings',
   'app/library.html': 'library',
   'app/overview.html': 'overview',
+  'app/reader.html': 'reader',
 });
 
 // Where the old file `path` (a path from the site's root, without its first slash) moved to, or null.

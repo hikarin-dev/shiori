@@ -7,6 +7,9 @@
    plain CSS: it answers the window's width inclusively, as 1.3's did. */
 @layer components {
   :root:not([data-frame="header"]) .app-header { display: none; }
+  /* The reader's address on a hard load, until the reader draws its frame (start.js): its ground, as
+     its own page had it from the first paint; its stylesheet gives it from then on. */
+  :root[data-frame="reader"] body { background: var(--reader-background); }
 
   .app-header {
     position: sticky; top: 0; z-index: var(--z-index-header);

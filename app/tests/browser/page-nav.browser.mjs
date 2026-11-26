@@ -94,11 +94,15 @@ test('each page names itself in the menu and offers the others; picking one goes
   await until(overview, () => location.pathname === '/' && document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page') && document.querySelector('meta[name="shiori-app"]')?.content === 'library', null, { what: 'the library, drawn by the one page' });
   assert.equal(await overview.evaluate(() => window.stayed), true, 'the overview\'s menu: no page load');
 
+  // The reader, drawn by the one page since its switch (2026-11-26): its menu its own (page-nav.js), a pick
+  // a route change.
   const reader = await visit(t, `/reader?g=${GID}`);
+  await reader.evaluate(() => { window.stayed = true; });
   assert.deepEqual(await offered(reader), ['library', 'overview', 'reader*', 'settings', 'tasks']);
   const to = await go(reader, 'overview');
   assert.deepEqual([to.pathname, to.searchParams.get('g')], ['/overview', GID], "the gallery's own overview");
   await until(reader, () => document.title === 'Shiori — Series' && !!document.querySelector('#ovContent .ov-hero') && document.querySelector('meta[name="shiori-app"]')?.content === 'overview', null, { what: 'the overview, drawn by the one page' });
+  assert.equal(await reader.evaluate(() => window.stayed), true, "the reader's menu: no page load");
 });
 
 // Every way into Settings from the library (drawn by the one page: a route change) and from a page that
@@ -106,8 +110,8 @@ test('each page names itself in the menu and offers the others; picking one goes
 // page (its nav, the shiori-app meta saying so); 1.3's Settings read nothing from the address it was
 // opened at, so nothing more is asked of it.
 test('every link into Settings from the library, an overview and the reader arrives at Settings, drawn by the one page', { skip: !chromePath() }, async t => {
-  // (The library and the overview are drawn by the one page: their menu and their Settings button a route
-  // change; the reader still has a file of its own.)
+  // (Every page is drawn by the one page: the library's and the overview's menu and Settings button, and the
+  // reader's menu, a route change.)
   const arrived = (page) => until(page, () => location.pathname === '/settings' && location.search === '' && document.title === 'Shiori — Settings'
     && !!document.getElementById('settingsNav') && document.querySelector('meta[name="shiori-app"]')?.content === 'settings', null, { what: 'Settings' });
   for (const [path, nth] of [['/library', 2], [`/overview?g=${GID}`, 3]]) {
@@ -121,24 +125,27 @@ test('every link into Settings from the library, an overview and the reader arri
   }
   for (const path of [`/reader?g=${GID}`]) {
     const page = await visit(t, path);
+    await page.evaluate(() => { window.stayed = true; });
     await go(page, 'settings');
     await arrived(page);
+    assert.equal(await page.evaluate(() => window.stayed), true, `${path}: its menu, no page load`);
     assert.deepEqual(page.problems, [], `${path}: its menu`);
   }
 });
 
-// Every way to the library arrives at it, drawn by the one page at the site's root: the reader's Home (a
-// plain link on a page with a file of its own: a load), the brand on a page the one page draws (Tasks,
-// Settings and, since its switch, the overview: a route change), the menus (above), the installed app's
-// start (the web manifest's start_url).
+// Every way to the library arrives at it, drawn by the one page at the site's root: the reader's Home and
+// the brand on every page (Tasks, Settings, the overview and, since its switch, the reader: a route
+// change), the menus (above), the installed app's start (the web manifest's start_url).
 test('every way to the library arrives at it, drawn by the one page', { skip: !chromePath() }, async t => {
   const arrived = (page) => until(page, () => location.pathname === '/' && document.title === 'Shiori — Library' && !!document.querySelector('#root main.library-page #grid')
     && document.querySelector('meta[name="shiori-app"]')?.content === 'library', null, { what: 'the library' });
   for (const [path, home] of [[`/reader?g=${GID}`, '#snHome']]) {
     const page = await visit(t, path);
+    await page.evaluate(() => { window.stayed = true; });
     // (The reader's bars may be out of sight: its Home pressed as a link is.)
-    await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.evaluate((home) => document.querySelector(home).click(), home)]);
+    await page.evaluate((home) => document.querySelector(home).click(), home);
     await arrived(page);
+    assert.equal(await page.evaluate(() => window.stayed), true, `${path}: its Home, no page load`);
   }
   for (const path of ['/tasks', '/settings', `/overview?g=${GID}`]) {
     const page = await visitDrawn(t, path);
