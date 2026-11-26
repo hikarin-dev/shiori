@@ -31,10 +31,22 @@ const clearJobs = () => page.evaluate(async () => { const platform = await impor
 
 // The row of chapter S2 (and the hero's details) as each word of `steps` is said: each read once the
 // row shows the word (its bar's words changed, or at rest again), a moment after.
+// The hero's details say the gallery's stored size, which the library measures a moment after a page
+// first shows it: read once it has been still for two seconds, as overview-table and overview-phone do
+// (under the whole suite's load on 2026-11-26 the first word of a download was read with it half
+// measured: "35.4KB" for "41.8KB").
+const sizesStill = () => until(page, async () => {
+  const { totalSize } = await (await import('/app/js/api.js')).galleries.stats();
+  const now = performance.now();
+  if (totalSize !== window.__size) { window.__size = totalSize; window.__sizeSince = now; return false; }
+  return now - window.__sizeSince >= 2000;
+}, null, { what: 'the stored sizes still', timeout: 30000 });
+
 async function drive(steps) {
   const path = NEW;
   await clearJobs();
   await visit(page, origin, path, gid(base, 'S'));
+  await sizesStill();
   const out = [];
   for (const step of steps) {
     if (step.wait) await sleep(step.wait);
