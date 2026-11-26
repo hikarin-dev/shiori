@@ -263,7 +263,9 @@ test('leaving the page five times with a chapter\'s pages open and a job running
   await sleep(1500);
   const counts = [];
   for (let i = 0; i < 6; i++) {
-    await page.evaluate((path) => { history.pushState(null, '', path); dispatchEvent(new PopStateEvent('popstate')); }, `${NEW}?g=${gid(base, 'S')}`);
+    // Arrived at by a link, as the app's own are followed: a new visit each time (the chapters whose pages
+    // were open are kept by history entry, so a visit come back to has them open already).
+    await page.evaluate((path) => { const a = Object.assign(document.createElement('a'), { href: path }); document.body.append(a); a.click(); a.remove(); }, `${NEW}?g=${gid(base, 'S')}`);
     await until(page, () => document.querySelectorAll('.ch-row').length === 4 && !!document.querySelector('#seriesCover img'), null, { what: 'the overview' });
     await publish(page, { gid: gid(base, 'S2'), kind: 'download', status: 'downloading', downloaded: 100, total: 1000, pages: 2 });
     await page.hover('.ch-row:nth-child(1) .ch-head');
