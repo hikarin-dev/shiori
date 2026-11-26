@@ -93,7 +93,7 @@ async function settle(page, owner, timeout = 30000) {
   const end = Date.now() + timeout;
   let last = '', since = Date.now();
   while (Date.now() < end) {
-    const now = JSON.stringify([await holdings(page, owner), (await page.evaluate(read)).rows?.map((r) => r.id), await tracker(page), await page.evaluate(() => !!document.querySelector('.notice-overlay, [data-notice]'))]);
+    const now = JSON.stringify([await holdings(page, owner), (await page.evaluate(read)).rows?.map((r) => r.id), await tracker(page), await page.evaluate(() => !!document.querySelector('[data-notice]'))]);
     const running = await page.evaluate(() => !!document.querySelector('#ovImports .ib:is([data-state="running"], [data-state="waiting"])'));
     if (now !== last) { last = now; since = Date.now(); } else if (!running && Date.now() - since > 1500) return;
     await sleep(250);

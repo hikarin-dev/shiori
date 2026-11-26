@@ -151,7 +151,7 @@ test('the overview\'s other states: a row with a job, a row\'s pages open, the r
     await sleep(300);
     await page.$eval('#editToggle', (el) => el.click());
     await page.$eval('.ov-chip-add', (el) => el.click());
-    await until(page, () => !!document.querySelector('.modal-overlay.show #tagEdType, [data-slot="dialog"] #tagEdType'), null, { what: `${name}: the tag editor` });
+    await until(page, () => !!document.querySelector('[data-slot="dialog"] #tagEdType'), null, { what: `${name}: the tag editor` });
     await sleep(400);
     await nothingDarker(page, `${name}, the tag editor open`, 8);
     await page.keyboard.press('Escape');

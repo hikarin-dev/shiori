@@ -107,7 +107,7 @@ function questions() {
   // (its padding taken off): all 0 but the 8px between two when they take the row's whole width.
   window.__share = () => {
     const shown = ['deskInstallUpdate', 'deskCheckUpdates'].map((id) => document.getElementById(id)).filter((b) => b.getClientRects().length);
-    const row = shown[0].closest('.toggle-row, [data-slot="setting-row"]');
+    const row = shown[0].closest('[data-slot="setting-row"]');
     const box = row.getBoundingClientRect(), style = getComputedStyle(row);
     const edges = [box.left + parseFloat(style.paddingLeft), ...shown.flatMap((b) => { const r = b.getBoundingClientRect(); return [r.left, r.right]; }), box.right - parseFloat(style.paddingRight)];
     return { shown: shown.map((b) => b.id), gaps: edges.flatMap((edge, i) => (i % 2 ? [Math.round(edge - edges[i - 1])] : [])) };

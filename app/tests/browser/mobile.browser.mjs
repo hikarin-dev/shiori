@@ -98,7 +98,7 @@ test('a finger on a cover scrolls the library: it never starts merging galleries
   for (let k = 1; k <= 8; k++) await page.touchscreen.touchMove(from.x + (to.x - from.x) * k / 8, from.y + (to.y - from.y) * k / 8);
   assert.equal(await page.$('.card-drag-clone'), null, 'no card lifted under the finger');
   await page.touchscreen.touchEnd();
-  assert.equal(await page.$('.modal-overlay.show, dialog[open], [data-notice="dialog"]'), null, 'no merge asked for');
+  assert.equal(await page.$('dialog[open], [data-notice="dialog"]'), null, 'no merge asked for');
   // A mouse, on a desktop window: the drag still lifts the card.
   const desk = await phone(t, LIBRARY, { width: 1280, height: 900 });
   await desk.waitForSelector('.card + .card');

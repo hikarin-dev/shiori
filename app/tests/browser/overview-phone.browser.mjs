@@ -47,7 +47,7 @@ function finger() {
   return {
     sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth, coarse: matchMedia('(pointer: coarse)').matches, hover: matchMedia('(hover: hover)').matches,
     text: { title: f('.series-title-input'), sub: f('#ovSubtitle'), button: f('.series-actions > *'), meta: f('.ov-meta-item'), tag: f('.ov-chip'), label: f('.ov-tag-label'),
-      section: f('#ovSection'), num: f('.ch-num'), rowTitle: f('.ch-row .ch-title-input, .ch-row [data-slot="inline-edit"]'), rowMeta: f('.ch-meta'),
+      section: f('#ovSection'), num: f('.ch-num'), rowTitle: f('.ch-row [data-slot="inline-edit"]'), rowMeta: f('.ch-meta'),
       addHeading: f('#addHeading'), addBox: f('#addSearch'), hint: f('.add-hint'), pageNum: f('.ov-page-num') },
     targets: {
       settings: size(document.getElementById('settingsBtn')),
@@ -181,12 +181,12 @@ test('the re-run menu from a long press on a translated chapter\'s translate but
     await page.$eval(sel, (el) => el.scrollIntoView({ block: 'center' }));
     await sleep(200);
     await page.$eval(sel, (el) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 2 })); });
-    await until(page, () => [...document.querySelectorAll('.rerun-menu')].some((m) => m.getClientRects().length && m.querySelectorAll('[role="menuitem"], .ctx-menu-item').length), null, { what: 'the menu' });
+    await until(page, () => [...document.querySelectorAll('.rerun-menu')].some((m) => m.getClientRects().length && m.querySelectorAll('[role="menuitem"]').length), null, { what: 'the menu' });
     await sleep(300);
     now = await page.evaluate(() => {
       const m = [...document.querySelectorAll('.rerun-menu')].find((el) => el.getClientRects().length);
       const r = m.getBoundingClientRect();
-      return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, steps: [...m.querySelectorAll('[role="menuitem"], .ctx-menu-item')].map((i) => i.textContent.replace(/\s+/g, ' ').trim()) };
+      return { inside: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, steps: [...m.querySelectorAll('[role="menuitem"]')].map((i) => i.textContent.replace(/\s+/g, ' ').trim()) };
     });
     await page.keyboard.press('Escape');
     await sleep(300);
@@ -257,7 +257,7 @@ test('a finger drags a row by its grip as 1.3\'s, and scrolls the page from anyw
 
 // What a press opens, inside the window on a phone, every button in reach.
 function inside() {
-  const box = [...document.querySelectorAll('.notice-overlay .notice-dialog, [data-notice="dialog"], .modal-overlay.show .modal-box, [data-slot="dialog"]')].find((b) => b.getClientRects().length);
+  const box = [...document.querySelectorAll('[data-notice="dialog"], [data-slot="dialog"]')].find((b) => b.getClientRects().length);
   if (!box) return null;
   const r = box.getBoundingClientRect();
   const buttons = [...box.querySelectorAll('button')].filter((b) => getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().width > 0).map((b) => b.getBoundingClientRect());

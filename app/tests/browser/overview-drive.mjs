@@ -127,11 +127,11 @@ export function read() {
   const tagTable = content.querySelector('#ovTags');
   const tags = tagTable ? { shown: shown(tagTable), rows: [...tagTable.querySelectorAll('.ov-tag-row')].map((row) => ({
     label: text(row.querySelector('.ov-tag-label')),
-    chips: [...row.querySelectorAll('.ov-chip')].map((chip) => ({ text: text(chip), count: text(chip.querySelector('.ov-chip-n, [data-slot="tag-count"]')), href: link(chip), shown: shown(chip), type: chip.dataset.type ?? null, tip: chip.dataset.tip ?? null })) })) } : null;
+    chips: [...row.querySelectorAll('.ov-chip')].map((chip) => ({ text: text(chip), count: text(chip.querySelector('[data-slot="tag-count"]')), href: link(chip), shown: shown(chip), type: chip.dataset.type ?? null, tip: chip.dataset.tip ?? null })) })) } : null;
   const section = content.querySelector('#ovSection');
   const views = [...section.querySelectorAll('[data-view]')].map((b) => ({ view: b.dataset.view, text: text(b), selected: b.getAttribute('aria-selected') }));
   const rows = [...content.querySelectorAll('.ch-row')].map((row) => {
-    const input = row.querySelector('.ch-title-input, [data-slot="inline-edit"]');
+    const input = row.querySelector('[data-slot="inline-edit"]');
     return {
       id: row.dataset.chapterId,
       state: ['missing', 'working', 'expanded'].filter((c) => row.classList.contains(c)),
@@ -184,7 +184,7 @@ export function boxes() {
     meta: box(document.querySelector('#ovMeta')), metaItems: all('.ov-meta-item'), metaIcons: all('.ov-meta-item svg'),
     tags: box(document.querySelector('#ovTags')), tagLabels: all('.ov-tag-label'), chips: all('.ov-chip'),
     section: box(document.querySelector('#ovSection')), views: all('#ovSection [data-view]'), count: box(document.querySelector('.ov-count')),
-    rows: all('.ch-row'), nums: all('.ch-num'), thumbs: all('.ch-thumb'), titles: all('.ch-row .ch-title-input, .ch-row [data-slot="inline-edit"]'),
+    rows: all('.ch-row'), nums: all('.ch-num'), thumbs: all('.ch-thumb'), titles: all('.ch-row [data-slot="inline-edit"]'),
     metas: all('.ch-meta'), metaParts: all('.ch-meta > *'), rowActions: all('.ch-actions'), rowButtons: all('.ch-actions > button'), expands: all('.ch-expand'),
     grips: all('.ch-grip'), progress: all('.ch-progress'), pages: all('.ov-page'), pageNums: all('.ov-page-num'),
     add: box(document.querySelector('#addBar')), addHeading: box(document.querySelector('#addHeading')), addSearch: box(document.querySelector('#addSearch')),

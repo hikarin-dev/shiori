@@ -63,7 +63,7 @@ function helpers() {
         entry: shown(nav()) ? nav().textContent : null,
         shows: active === panel() ? 'optional' : active?.id ?? null,
         offer: offer && { title: offer.querySelector('h2').textContent,
-          words: [...offer.querySelectorAll('.toggle-name, .toggle-desc, [data-slot="setting-row"] [id$="-name"], [data-slot="setting-row"] [id$="-desc"]')].map((x) => x.textContent),
+          words: [...offer.querySelectorAll('[data-slot="setting-row"] [id$="-name"], [data-slot="setting-row"] [id$="-desc"]')].map((x) => x.textContent),
           button: link.textContent.trim(), href: link.getAttribute('href'), target: link.getAttribute('target'), rel: link.getAttribute('rel') },
         standIn: shown(document.getElementById('standIn')),
         // The panel's own words while it shows.

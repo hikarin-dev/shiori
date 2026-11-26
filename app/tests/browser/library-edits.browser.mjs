@@ -52,27 +52,27 @@ async function pressText(page, selector, text) {
 
 // The tag editor showing: its title, the type chosen, its value's label and field, its buttons.
 async function readEditor(page) {
-  await page.waitForFunction(() => { const box = document.getElementById('tagEdType')?.closest('.modal-box, [data-slot="dialog"]'); return box && box.getBoundingClientRect().height > 0; }, { timeout: 3000 });
+  await page.waitForFunction(() => { const box = document.getElementById('tagEdType')?.closest('[data-slot="dialog"]'); return box && box.getBoundingClientRect().height > 0; }, { timeout: 3000 });
   await sleep(250);
   return page.evaluate(() => {
-    const box = document.getElementById('tagEdType').closest('.modal-box, [data-slot="dialog"]');
+    const box = document.getElementById('tagEdType').closest('[data-slot="dialog"]');
     const type = document.getElementById('tagEdType');
     const pick = document.getElementById('tagEdPick');
     const shown = (el) => !!el && el.getClientRects().length > 0;
     return {
-      title: box.querySelector('.modal-title, [data-slot="dialog-title"]').textContent,
-      labels: [...box.querySelectorAll('.modal-label, [data-slot="eyebrow"]')].map((l) => l.textContent),
+      title: box.querySelector('[data-slot="dialog-title"]').textContent,
+      labels: [...box.querySelectorAll('[data-slot="eyebrow"]')].map((l) => l.textContent),
       type: type instanceof HTMLSelectElement ? type.selectedOptions[0].textContent : type.textContent.trim(),
       value: shown(document.getElementById('tagEdValue')) ? { typed: document.getElementById('tagEdValue').value, placeholder: document.getElementById('tagEdValue').placeholder } : null,
       pick: shown(pick) ? (pick instanceof HTMLSelectElement ? pick.selectedOptions[0]?.textContent : pick.textContent.trim()) : null,
-      buttons: [...box.querySelectorAll('.modal-actions button, [data-slot="dialog-footer"] button')].filter(shown).map((b) => b.textContent),
+      buttons: [...box.querySelectorAll('[data-slot="dialog-footer"] button')].filter(shown).map((b) => b.textContent),
       focus: document.activeElement?.id || null,
     };
   });
 }
 // The editor's suggestions showing: their names.
-const suggestions = (page) => page.evaluate(() => [...document.querySelectorAll('#tagEdList.open .tag-ed-opt-name, [data-slot="listbox"] [data-slot="listbox-option"] > span:first-child')].map((s) => s.textContent));
-const editorOpen = (page) => page.evaluate(() => { const box = document.getElementById('tagEdType')?.closest('.modal-overlay.show, [data-slot="dialog"]'); return !!box; });
+const suggestions = (page) => page.evaluate(() => [...document.querySelectorAll('[data-slot="listbox"] [data-slot="listbox-option"] > span:first-child')].map((s) => s.textContent));
+const editorOpen = (page) => page.evaluate(() => { const box = document.getElementById('tagEdType')?.closest('[data-slot="dialog"]'); return !!box; });
 
 const CASES = [
   ['delete: asked, Escape', {}, async (d) => { await d.press('P', 'del'); await d.dialog(); await d.answer('escape'); await sleep(400); }],
@@ -123,9 +123,9 @@ const CASES = [
   ['export: the choice, OK', {}, async (d) => { await d.press('P', 'export'); await d.dialog(); await d.answer('ok'); await d.saved(1); }],
   ['export: CBZ without translations, remembered', {}, async (d) => {
     await d.press('P', 'export'); await d.dialog();
-    await pressText(d.page, '.notice-option, label[data-slot="option-card"]', 'CBZ');
-    await pressText(d.page, '.notice-check, [data-notice="dialog"] label', 'Include translations');
-    await pressText(d.page, '.notice-check, [data-notice="dialog"] label', 'Remember');
+    await pressText(d.page, 'label[data-slot="option-card"]', 'CBZ');
+    await pressText(d.page, '[data-notice="dialog"] label', 'Include translations');
+    await pressText(d.page, '[data-notice="dialog"] label', 'Remember');
     await d.dialog(); await d.answer('ok'); await d.saved(1);
     d.seen.push({ kept: await d.page.evaluate(() => [localStorage.getItem('shiori:libExportFormat'), localStorage.getItem('shiori:libExportTranslations')]) });
   }],

@@ -142,7 +142,7 @@ async function keyFacts(page, origin, path, base) {
   // 5. Escape: the delete's question, the re-run menu, the tag editor, a title box.
   await fresh();
   await page.hover(`${S2} .ch-main`); await page.click(del); await sleep(500);
-  const open = () => page.evaluate(() => ({ dialog: !!document.querySelector('.notice-overlay, [data-notice="dialog"]'), menu: [...document.querySelectorAll('.rerun-menu')].some((m) => m.getClientRects().length), tags: !!document.querySelector('.modal-overlay.show #tagEdType, [data-slot="dialog"] #tagEdType') }));
+  const open = () => page.evaluate(() => ({ dialog: !!document.querySelector('[data-notice="dialog"]'), menu: [...document.querySelectorAll('.rerun-menu')].some((m) => m.getClientRects().length), tags: !!document.querySelector('[data-slot="dialog"] #tagEdType') }));
   r.question = await open();
   await page.keyboard.press('Escape'); await sleep(400);
   r.questionEscape = { ...(await open()), kept: !!(await outcome(page, base)).galleries.S2 };

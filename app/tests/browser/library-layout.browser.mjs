@@ -134,7 +134,7 @@ test('the re-run menu: under its button, upward at the window\'s foot, back insi
       await press(page, base, 'T', 'tr', { right: true });
       await sleep(400);
       const r = await page.evaluate((btn) => {
-        const m = document.querySelector('.ctx-menu, [data-slot="menu"]').getBoundingClientRect(), b = document.querySelector(btn).getBoundingClientRect();
+        const m = document.querySelector('[data-slot="menu"]').getBoundingClientRect(), b = document.querySelector(btn).getBoundingClientRect();
         return { below: Math.round(m.top - b.bottom), above: Math.round(b.top - m.bottom), left: Math.round(m.left - b.left), right: Math.round(innerWidth - m.right), ring: (() => { const f = document.querySelector(':focus-visible'); if (!f) return 'none'; const cs = getComputedStyle(f); return cs.outlineStyle === 'none' ? 'focused, nothing drawn' : `drawn on ${f.className}`; })(), bar: innerWidth - document.documentElement.clientWidth };
       }, btn);
       await page.keyboard.press('Escape');

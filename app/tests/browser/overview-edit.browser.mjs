@@ -29,25 +29,25 @@ after(async () => { await browser?.close(); server?.close(); });
 
 // The tag editor showing: its title, the type chosen (and whether it can change), its value, its buttons.
 async function readEditor(page) {
-  await page.waitForFunction(() => { const box = document.getElementById('tagEdType')?.closest('.modal-box, [data-slot="dialog"]'); return box && box.getBoundingClientRect().height > 0; }, { timeout: 3000 });
+  await page.waitForFunction(() => { const box = document.getElementById('tagEdType')?.closest('[data-slot="dialog"]'); return box && box.getBoundingClientRect().height > 0; }, { timeout: 3000 });
   await sleep(300);
   return page.evaluate(() => {
-    const box = document.getElementById('tagEdType').closest('.modal-box, [data-slot="dialog"]');
+    const box = document.getElementById('tagEdType').closest('[data-slot="dialog"]');
     const type = document.getElementById('tagEdType');
     const pick = document.getElementById('tagEdPick');
     const shown = (el) => !!el && el.getClientRects().length > 0;
     return {
-      title: box.querySelector('.modal-title, [data-slot="dialog-title"]').textContent,
+      title: box.querySelector('[data-slot="dialog-title"]').textContent,
       type: type instanceof HTMLSelectElement ? type.selectedOptions[0].textContent : type.textContent.trim(),
       typeOff: type.disabled || type.hasAttribute('data-disabled'),
       value: shown(document.getElementById('tagEdValue')) ? document.getElementById('tagEdValue').value : null,
       pick: shown(pick) ? (pick instanceof HTMLSelectElement ? pick.selectedOptions[0]?.textContent : pick.textContent.trim()) : null,
-      buttons: [...box.querySelectorAll('.modal-actions button, [data-slot="dialog-footer"] button')].filter(shown).map((b) => b.textContent),
+      buttons: [...box.querySelectorAll('[data-slot="dialog-footer"] button')].filter(shown).map((b) => b.textContent),
       focus: document.activeElement?.id || null,
     };
   });
 }
-const editorGone = (page) => page.waitForFunction(() => !document.getElementById('tagEdType')?.closest('.modal-overlay.show, [data-slot="dialog"]'), { timeout: 3000 }).catch(() => {});
+const editorGone = (page) => page.waitForFunction(() => !document.getElementById('tagEdType')?.closest('[data-slot="dialog"]'), { timeout: 3000 }).catch(() => {});
 
 // A title box emptied and `text` typed in (none: emptied).
 async function typeTitle(page, sel, text) {
@@ -57,7 +57,7 @@ async function typeTitle(page, sel, text) {
   if (text) await page.keyboard.type(text);
 }
 const SERIES_TITLE = '#seriesTitle';
-const chapterTitle = (base, part) => `${rowSel(base, part)} .ch-title-input, ${rowSel(base, part)} [data-slot="inline-edit"]`;
+const chapterTitle = (base, part) => `${rowSel(base, part)} [data-slot="inline-edit"]`;
 // A press somewhere that holds nothing (the details' line), which leaves a title box.
 const elsewhere = (page) => page.mouse.click(900, 40);
 

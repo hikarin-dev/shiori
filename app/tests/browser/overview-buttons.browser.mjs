@@ -136,7 +136,7 @@ const CASES = [
   }],
   ['the right button: Re-run from…, Escape', { prep: 'rerun' }, async (d) => {
     await d.row('S3', 'translate', { right: true }); d.seen.push({ menu: await readMenu(d.page) }); await d.page.keyboard.press('Escape'); await sleep(400);
-    d.seen.push({ menuLeft: await d.page.evaluate(() => !!document.querySelector('.ctx-menu, [data-slot="menu"]')) });
+    d.seen.push({ menuLeft: await d.page.evaluate(() => !!document.querySelector('[data-slot="menu"]')) });
   }],
   ['the right button, not translated: no menu', {}, async (d) => { await d.row('S2', 'translate', { right: true }); d.seen.push({ menu: await readMenu(d.page, 800) }); }],
   ['translate\'s Stop', {}, async (d) => {

@@ -25,12 +25,6 @@ const list = (page) => page.evaluate(() => {
   return l ? { heads: [...l.querySelectorAll('[data-slot="eyebrow"]')].map((h) => h.textContent), options: [...l.querySelectorAll('[role="option"]')].map((o) => o.textContent), active: l.querySelector('[aria-selected="true"]')?.textContent ?? null } : null;
 });
 
-async function focusAtEnd(page) {
-  await page.$eval(BOX, (el) => el.scrollIntoView({ block: 'center' }));
-  await page.click(BOX);
-  await page.keyboard.press('End');
-}
-
 test('the box at rest: 1.3\'s, a filter a block in Tag\'s look, the X showing while there is a query', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;

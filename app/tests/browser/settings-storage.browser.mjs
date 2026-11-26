@@ -72,7 +72,7 @@ function helpers() {
       const list = d.querySelector('select, [data-slot="select-trigger"]');
       return { title: d.querySelector('h2')?.textContent ?? '', text: d.querySelector('p')?.textContent ?? '',
         // A progress or operation window (its bar), not a question.
-        busy: !!d.querySelector('.notice-bar, [role="progressbar"]'),
+        busy: !!d.querySelector('[role="progressbar"]'),
         choice: list ? (list.tagName === 'SELECT' ? list.selectedOptions[0]?.textContent : list.textContent) ?? '' : null,
         buttons: [...d.querySelectorAll('button')].filter((b) => shown(b) && !b.matches('[data-slot="select-trigger"]')).map((b) => b.textContent.trim()).filter(Boolean) };
     },
@@ -86,11 +86,11 @@ function helpers() {
     // The remove question's switch (moving the galleries first).
     flip: () => {
       const d = dialogs().at(-1);
-      const s = d?.querySelector('.notice-toggle input, [role="switch"]');
+      const s = d?.querySelector('[role="switch"]');
       s?.click();
       return !!s;
     },
-    switchOn: () => { const s = dialogs().at(-1)?.querySelector('.notice-toggle input, [role="switch"]'); return s ? (s.checked ?? s.getAttribute('aria-checked') === 'true') : null; },
+    switchOn: () => { const s = dialogs().at(-1)?.querySelector('[role="switch"]'); return s ? (s.checked ?? s.getAttribute('aria-checked') === 'true') : null; },
     row: (name) => [...document.querySelectorAll('#foldersSection .lf-item')].find((r) => r.querySelector('.lf-title')?.textContent === name) || null,
     more: (name) => { const b = window.__s.row(name)?.querySelector('.lf-more'); b?.click(); return !!b; },
     menu: () => { const m = [...document.querySelectorAll('.lf-menu')].filter(shown).at(-1); return m ? [...m.querySelectorAll('.ctx-menu-item')].map((b) => b.textContent) : null; },

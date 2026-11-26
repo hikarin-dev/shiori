@@ -180,11 +180,10 @@ export async function press(page, base, part, what, { shift = false, alt = false
   await sleep(300);
 }
 
-// The dialog showing (1.3's own drawing, or the notice host's), as words: or null when none shows
-// within `wait` ms.
+// The dialog showing (the notice host's), as words: or null when none shows within `wait` ms.
 export async function readDialog(page, wait = 2000) {
   try {
-    await page.waitForFunction(() => document.querySelector('.notice-overlay .notice-dialog, [data-notice="dialog"]'), { timeout: wait });
+    await page.waitForFunction(() => document.querySelector('[data-notice="dialog"]'), { timeout: wait });
   } catch { return null; }
   await sleep(150);
   return page.evaluate(() => {
@@ -198,20 +197,6 @@ export async function readDialog(page, wait = 2000) {
       if (a.matches('input')) return 'field';
       return text(a.closest('button'));
     };
-    const old = document.querySelector('.notice-overlay .notice-dialog');
-    if (old) {
-      return {
-        title: text(old.querySelector('h2')), body: text(old.querySelector(':scope > p')),
-        detail: [text(old.querySelector('.notice-detail-main')), text(old.querySelector('.notice-detail-sub'))].filter((x) => x != null),
-        cover: old.querySelector('.notice-thumb') ? (old.querySelector('.notice-thumb img') ? 'picture' : 'none yet') : null,
-        tone: old.querySelector('.notice-icon')?.classList[1] ?? null,
-        input: old.querySelector('.notice-input') ? { value: old.querySelector('.notice-input').value, placeholder: old.querySelector('.notice-input').placeholder } : null,
-        choices: [...old.querySelectorAll('.notice-option')].map((o) => ({ label: text(o.querySelector('strong')), detail: text(o.querySelector('.notice-option-text span')), checked: o.querySelector('input').checked })),
-        checks: [...old.querySelectorAll('.notice-check')].filter((c) => !c.hidden).map((c) => ({ label: text(c.querySelector('span')), checked: c.querySelector('input').checked })),
-        buttons: [...old.querySelectorAll('.notice-actions button')].map((b) => ({ text: text(b), danger: b.classList.contains('danger') })),
-        focus: focusOf(),
-      };
-    }
     const box = document.querySelector('[data-notice="dialog"]');
     const detailBox = box.querySelector('[data-slot="notice-detail"]');
     const lines = detailBox ? [...detailBox.querySelectorAll(':scope > span:last-child > span')].map(text) : [];
@@ -239,15 +224,15 @@ export async function answer(page, how) {
   if (how === 'escape') await page.keyboard.press('Escape');
   else {
     const nth = how === 'ok' ? 'last-child' : 'first-child';
-    await page.click(`.notice-overlay .notice-dialog .notice-actions button:${nth}, [data-notice="dialog"] [data-slot="dialog-footer"] button:${nth}`);
+    await page.click(`[data-notice="dialog"] [data-slot="dialog-footer"] button:${nth}`);
   }
-  await page.waitForFunction(() => !document.querySelector('.notice-overlay .notice-dialog, [data-notice="dialog"]'), { timeout: 3000 }).catch(() => {});
+  await page.waitForFunction(() => !document.querySelector('[data-notice="dialog"]'), { timeout: 3000 }).catch(() => {});
   await sleep(300);
 }
 
 // The prompt's field emptied and `text` typed in.
 export async function typeInto(page, text) {
-  const sel = '.notice-overlay .notice-input, [data-notice="dialog"] input';
+  const sel = '[data-notice="dialog"] input';
   await page.focus(sel);
   await page.keyboard.down('Control'); await page.keyboard.press('a'); await page.keyboard.up('Control');
   await page.keyboard.press('Backspace');
@@ -256,17 +241,15 @@ export async function typeInto(page, text) {
 
 // The re-run menu showing: its title and steps (label, detail, off).
 export async function readMenu(page, wait = 2000) {
-  try { await page.waitForFunction(() => document.querySelector('.ctx-menu, [data-slot="menu"]'), { timeout: wait }); } catch { return null; }
+  try { await page.waitForFunction(() => document.querySelector('[data-slot="menu"]'), { timeout: wait }); } catch { return null; }
   await sleep(150);
   return page.evaluate(() => {
-    const old = document.querySelector('.ctx-menu');
-    if (old) return { title: old.querySelector('.ctx-menu-title').textContent, steps: [...old.querySelectorAll('.ctx-menu-item')].map((i) => [i.querySelector('.ctx-menu-label').textContent, i.querySelector('.ctx-menu-detail').textContent, i.disabled]) };
     const menu = document.querySelector('[data-slot="menu"]');
     return { title: menu.querySelector('[data-slot="menu-title"]').textContent, steps: [...menu.querySelectorAll('[data-slot="menu-item"]')].map((i) => [i.querySelector('[data-slot="menu-label"]').textContent, i.querySelector('[data-slot="menu-detail"]').textContent, i.hasAttribute('data-disabled')]) };
   });
 }
 export async function pickStep(page, label) {
-  const item = await page.evaluateHandle((label) => [...document.querySelectorAll('.ctx-menu-item, [data-slot="menu-item"]')].find((i) => i.textContent.startsWith(label)), label);
+  const item = await page.evaluateHandle((label) => [...document.querySelectorAll('[data-slot="menu-item"]')].find((i) => i.textContent.startsWith(label)), label);
   await item.click();
   await sleep(300);
 }
@@ -289,12 +272,12 @@ export async function readSeriesWindow(page) {
     await sleep(200);
   } else options = await page.evaluate(() => [...document.getElementById('_serTrSel').options].map((o) => o.textContent));
   return page.evaluate((options) => {
-    const box = document.getElementById('_serTrSel').closest('.modal-box, [data-slot="dialog"]');
+    const box = document.getElementById('_serTrSel').closest('[data-slot="dialog"]');
     const sel = document.getElementById('_serTrSel');
     return {
-      title: (box.querySelector('.modal-title, [data-slot="dialog-title"]')).textContent, words: box.querySelector('.modal-label, [data-slot="eyebrow"]').textContent,
+      title: (box.querySelector('[data-slot="dialog-title"]')).textContent, words: box.querySelector('[data-slot="eyebrow"]').textContent,
       options, chosen: sel instanceof HTMLSelectElement ? sel.selectedOptions[0].textContent : sel.textContent.trim(),
-      buttons: [...box.querySelectorAll('.modal-actions button, [data-slot="dialog-footer"] button')].map((b) => b.textContent),
+      buttons: [...box.querySelectorAll('[data-slot="dialog-footer"] button')].map((b) => b.textContent),
     };
   }, options);
 }

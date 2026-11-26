@@ -121,7 +121,7 @@ test('no sideways scroll at any width from 320 to 600, on either page; the heade
 test('what a card opens on a phone, and the filter: inside the window, the buttons reachable and a finger\'s size', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const inside = () => {
-    const box = document.querySelector('.notice-overlay .notice-dialog, [data-notice="dialog"], #filterModal.show .modal-box, [data-slot="dialog"]');
+    const box = document.querySelector('[data-notice="dialog"], [data-slot="dialog"]');
     if (!box) return null;
     const r = box.getBoundingClientRect();
     const buttons = [...box.querySelectorAll('button')].filter((b) => getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().width > 0).map((b) => b.getBoundingClientRect());
@@ -184,7 +184,7 @@ test('a tap grows no card and shows no quick actions; a finger on a cover lifts 
     const lifted = !!(await page.$('.card-drag-clone'));
     await page.touchscreen.touchEnd();
     await sleep(300);
-    const now = { before, after, lifted, asked: !!(await page.$('.notice-overlay, [data-notice="dialog"]')) };
+    const now = { before, after, lifted, asked: !!(await page.$('[data-notice="dialog"]')) };
     await page.close();
     const was = record(FILE, 'tap');
     assert.equal(was.before, was.after);

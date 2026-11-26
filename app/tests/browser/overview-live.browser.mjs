@@ -70,7 +70,7 @@ function seen() {
     kept: [...document.querySelectorAll('.ch-row')].filter((row) => row.__was).map((row) => row.dataset.chapterId) };
 }
 
-const hasTitle = (title) => [...document.querySelectorAll('.ch-row [data-slot="inline-edit"], .ch-row .ch-title-input')].some((i) => i.value === title);
+const hasTitle = (title) => [...document.querySelectorAll('.ch-row [data-slot="inline-edit"]')].some((i) => i.value === title);
 
 // Each change: what makes it (in the tab behind), and what shows it is drawn. `missed`: 1.3's page is
 // known not to show it.

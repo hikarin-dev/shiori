@@ -121,14 +121,14 @@ const shown = (page) => page.evaluate(() => ({
     ...['.ib-name', '.ib-tally', '.ib-issues'].map((s) => p.querySelector(s)?.textContent ?? '')].join(' | ')),
   trackerShown: !!document.getElementById('importTracker') && !document.getElementById('importTracker').hidden,
 }));
-const toastText = (page) => page.evaluate(() => document.querySelector('.notice-toast, [data-slot="toast-text"]')?.textContent?.trim() ?? null);
+const toastText = (page) => page.evaluate(() => document.querySelector('[data-slot="toast-text"]')?.textContent?.trim() ?? null);
 
 // Until nothing has changed for 1.5 s (the library, the page, a dialog) and no batch runs.
 async function settle(page, timeout = 30000) {
   const end = Date.now() + timeout;
   let last = '', since = Date.now();
   while (Date.now() < end) {
-    const now = JSON.stringify([await holdings(page), await shown(page), await page.evaluate(() => !!document.querySelector('.notice-overlay, [data-notice]'))]);
+    const now = JSON.stringify([await holdings(page), await shown(page), await page.evaluate(() => !!document.querySelector('[data-notice]'))]);
     const running = await page.evaluate(() => !!document.querySelector('#importTracker .ib:is([data-state="running"], [data-state="waiting"]), #importTracker .ib.listing'));
     // (2.5 s: the new page reads its totals 800 ms after the library's last word of a change, which may
     // come a second after the last change seen; 1.3 read them as a job ended.)
@@ -154,7 +154,7 @@ async function drop(page, files, steps = ['dragEnter', 'dragOver', 'drop']) {
 // Each case: its name and what is done on the page (`d`: the page and `seen`, where each dialog and
 // toast is kept as it shows).
 const dialog = async (d, wait) => { const box = await readDialog(d.page, wait); d.seen.push({ dialog: box && { title: box.title, body: box.body, detail: box.detail, tone: box.tone, buttons: box.buttons.map((b) => b.text) } }); return box; };
-const toast = async (d) => { const text = await until(d.page, () => document.querySelector('.notice-toast, [data-slot="toast-text"]')?.textContent?.trim(), null, { what: 'the toast' }); d.seen.push({ toast: text }); };
+const toast = async (d) => { const text = await until(d.page, () => document.querySelector('[data-slot="toast-text"]')?.textContent?.trim(), null, { what: 'the toast' }); d.seen.push({ toast: text }); };
 // (A backup of the galleries' details asks nothing before it is restored: it says how it went.)
 const backupAnswered = async (d) => { await dialog(d); await answer(d.page, 'ok'); };
 const CASES = [

@@ -25,15 +25,15 @@ after(async () => {
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// The top notice dialog's text once it matches `pattern` (run in the page), or 0: notice.js's own on a
-// page that has a file of its own, the notice host's on a page the one page draws.
-const NOTICES = '.notice-overlay, [data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]';
+// The top notice dialog's text once it matches `pattern` (run in the page), or 0: as the one page's
+// notice host draws it.
+const NOTICES = '[data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]';
 const dialogText = (pattern) => {
-  const text = [...document.querySelectorAll('.notice-overlay, [data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]')].at(-1)?.innerText || '';
+  const text = [...document.querySelectorAll('[data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]')].at(-1)?.innerText || '';
   return new RegExp(pattern).test(text) ? text : 0;
 };
 const clickDialog = (label) => {
-  const top = [...document.querySelectorAll('.notice-overlay, [data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]')].at(-1);
+  const top = [...document.querySelectorAll('[data-notice="dialog"], [data-notice="ask"], [data-notice="operation"], [data-notice="progress"]')].at(-1);
   const button = [...(top?.querySelectorAll('button') || [])].find(b => b.textContent.trim() === label);
   if (!button) return 0;
   button.click();
