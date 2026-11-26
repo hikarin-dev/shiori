@@ -140,7 +140,16 @@ test('at a fractional display scale the side controls and the reader dialogs sta
   await page.evaluate(() => localStorage.setItem('shiori-reader-nav', 'side'));
   await page.reload();
   await page.waitForFunction(() => document.body.classList.contains('reader-side-nav') && document.querySelector('#mainImg').naturalWidth > 0);
-  const edges = () => page.evaluate(() => {
+  // Reader settings are drawn beside the frame by the one page, once opened (their button, then their box).
+  const settings = async () => {
+    await page.evaluate(() => document.getElementById('snSettings').click());
+    await page.waitForSelector('[data-reader-part="settings"]');
+    const at = await page.$eval('#readerSettingsBox', (box) => { const { left, right } = box.getBoundingClientRect(); return [left, right]; });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('[data-reader-part="settings"]'));
+    return at;
+  };
+  const edges = async () => ({ ...(await page.evaluate(() => {
     const rect = sel => document.querySelector(sel).getBoundingClientRect();
     const open = (overlay, box) => {
       document.querySelector(overlay).classList.add('show');
@@ -148,7 +157,6 @@ test('at a fractional display scale the side controls and the reader dialogs sta
       document.querySelector(overlay).classList.remove('show');
       return [left, right];
     };
-    const [settingsLeft, settingsRight] = open('#readerSettingsModal', '#readerSettingsBox');
     const [shortcutsLeft, shortcutsRight] = open('#keybindModal', '#keybindBox');
     // The rail across the top, centred: in the width the pages keep, a scrollbar beside them or not.
     const root = document.documentElement.dataset;
@@ -157,15 +165,17 @@ test('at a fractional display scale the side controls and the reader dialogs sta
     [root.snPos, root.snAlign] = ['right', 'start'];
     return {
       scrollbar: innerWidth > document.documentElement.clientWidth,
-      edges: { pill: rect('#snChapter').right, rail: rect('#snRail').right, topCentre, sideZoom: rect('#sideZoom').right, settingsLeft, settingsRight, shortcutsLeft, shortcutsRight },
+      edges: { pill: rect('#snChapter').right, rail: rect('#snRail').right, topCentre, sideZoom: rect('#sideZoom').right, shortcutsLeft, shortcutsRight },
     };
-  });
+  })), settings: await settings() });
   await overflow(page, 'hidden');
   const short = await edges();
   await overflow(page, 'auto');
   const tall = await edges();
   assert.deepEqual([short.scrollbar, tall.scrollbar], [false, true]);
   // Within a layout unit (1/64 px): what's left is rounding, not a shift.
+  [short.edges.settingsLeft, short.edges.settingsRight] = short.settings;
+  [tall.edges.settingsLeft, tall.edges.settingsRight] = tall.settings;
   for (const [name, edge] of Object.entries(short.edges)) {
     assert.ok(Math.abs(edge - tall.edges[name]) < 1 / 64, `${name} moved from ${edge} to ${tall.edges[name]}`);
   }
@@ -180,21 +190,21 @@ test("in a short window the reader settings' tab scrolls inside its frame, and a
   await page.reload();
   await page.waitForFunction(() => document.body.classList.contains('reader-side-nav'));
   await page.evaluate(() => document.getElementById('snSettings').click());
-  await page.waitForSelector('#readerSettingsModal.show');
+  await page.waitForSelector('[data-reader-part="settings"]');
   await page.$eval('[data-rs-tab="display"]', el => el.click());
   for (const [width, moves] of [[900, false], [420, true]]) {
     await page.setViewport({ width, height: 420 });
     const at = await page.evaluate(() => {
       const rect = el => el.getBoundingClientRect();
-      const box = document.getElementById('readerSettingsBox'), panel = document.querySelector('.rs-panel.active');
+      const box = document.getElementById('readerSettingsBox'), panel = document.querySelector('[role="tabpanel"]:not([data-hidden])');
       const btn = document.getElementById('readerNavPlace');
       btn.scrollIntoView({ block: 'center' });
       const b = rect(btn);
       return { boxScrolls: box.scrollHeight > box.clientHeight, panelScrolls: panel.scrollHeight > panel.clientHeight,
         scrollbar: panel.offsetWidth - panel.clientWidth - 2,   // less its borders
-        rights: [rect(box).right, rect(document.querySelector('.reader-settings-top')).right, rect(panel).right],
-        room: rect(document.getElementById('readerSettingsModal')).right - (b.left + b.right) / 2,
-        inset: rect(btn.closest('.rs-section')).right - b.right };
+        rights: [rect(box).right, rect(document.querySelector('[data-rs="top"]')).right, rect(panel).right],
+        room: document.documentElement.clientWidth - (b.left + b.right) / 2,   // the dialog's layer: the window less its scrollbar
+        inset: rect(btn.closest('[data-rs="section"]')).right - b.right };
     });
     assert.deepEqual([at.boxScrolls, at.panelScrolls], [false, true], `${width}px: the tab scrolls, not the box`);
     assert.ok(at.scrollbar > 0, `${width}px: a scrollbar shows`);

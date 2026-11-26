@@ -1,5 +1,6 @@
-// reader/parts.tsx — what the reader's plain modules ask the one page to draw for it, beside its frame
-// (never inside it): the page's right-click menu, page properties and the feedback dialog. Each part has
+// reader/parts.tsx — what the reader asks the one page to draw for it, beside its frame (never inside
+// it): reader settings (whose host the engine is handed: ./settings-store.ts), the page's right-click
+// menu, page properties and the feedback dialog. Each part has
 // a store its module hands its requests to (the notices' way: app/js/notice.js and
 // src/lib/notice-store.ts), registered as that module's host by the route before it starts the reader
 // and taken away after the reader has stopped, whose stop closes each part. A part's code is fetched the
@@ -9,6 +10,7 @@ import { useEffect, useState, useSyncExternalStore, type ComponentType } from 'r
 import * as menu from './page-menu-store';
 import * as properties from './properties-store';
 import * as feedback from './feedback-store';
+import * as settings from './settings-store';
 
 // A part's component, fetched once it is first asked for and drawn as soon as it has come. (Not
 // React.lazy: a component that suspends is revealed no sooner than 300 ms after (React's throttling of
@@ -26,13 +28,16 @@ function usePart(asked: boolean, load: () => Promise<{ default: ComponentType }>
 const loadMenu = () => import('./page-menu');
 const loadProperties = () => import('./properties');
 const loadFeedback = () => import('./feedback');
+const loadSettings = () => import('./settings');
 
 export function ReaderParts() {
   const PageMenu = usePart(useSyncExternalStore(menu.subscribe, menu.asked), loadMenu);
   const PageProperties = usePart(useSyncExternalStore(properties.subscribe, properties.asked), loadProperties);
   const Feedback = usePart(useSyncExternalStore(feedback.subscribe, feedback.asked), loadFeedback);
+  const Settings = usePart(useSyncExternalStore(settings.subscribe, settings.wasAsked), loadSettings);
   return (
     <>
+      {Settings && <Settings />}
       {PageMenu && <PageMenu />}
       {PageProperties && <PageProperties />}
       {Feedback && <Feedback />}

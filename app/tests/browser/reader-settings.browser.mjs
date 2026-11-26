@@ -13,13 +13,13 @@ let server, origin, browser;
 
 // What draws the dialog.
 const S = {
-  open: '#readerSettingsModal.show',
-  top: '.reader-settings-top',
+  open: '[data-reader-part="settings"]',
+  top: '[data-rs="top"]',
   close: '#readerSettingsClose',
   tab: (name) => `[role="tab"][data-rs-tab="${name}"]`,
   panel: (name) => `[data-rs-panel="${name}"]`,
-  heading: '[data-rs-panel="reading"] .rs-heading',
-  picker: '#rsPicker:not([hidden])',
+  heading: '[data-rs-panel="reading"] [data-rs="heading"]',
+  picker: '#rsPicker',
   cell: '#rsPicker [data-edge]',
 };
 
@@ -82,7 +82,7 @@ async function openSettings(page, tab) {
 const state = (page) => page.evaluate(() => ({
   mode: document.getElementById('modeToggle').dataset.state,
   page: document.getElementById('pageCounter').textContent.trim(),
-  zoom: document.getElementById('snZoomValue').textContent,
+  zoom: document.documentElement.style.getPropertyValue('--page-zoom'),   // (the side controls' figure is set again as they open: A4)
   fit: document.body.classList.contains('reader-fit-width') ? 'width' : document.body.classList.contains('reader-fit-height') ? 'height' : 'off',
   thumbs: document.body.classList.contains('thumbs-open'),
   hidden: document.body.classList.contains('reader-controls-hidden') || document.documentElement.classList.contains('reader-controls-hidden'),
@@ -178,7 +178,7 @@ test('the box under a CPU six times slower, the first opening and the next: its 
     const watch = () => page.evaluate((S) => new Promise((resolve) => {
       const seen = []; const t0 = performance.now();
       const tick = () => {
-        const top = document.querySelector(S.top), panel = document.querySelector('[role="tabpanel"]:not([hidden]):not(.rs-panel:not(.active)):not([data-hidden])');
+        const top = document.querySelector(S.top), panel = document.querySelector('[role="tabpanel"]:not([data-hidden])');
         if (top && panel && top.getBoundingClientRect().height) {
           const key = `${top.getBoundingClientRect().top},${top.getBoundingClientRect().height},${panel.getBoundingClientRect().bottom}`;
           if (seen.at(-1) !== key) seen.push(key);

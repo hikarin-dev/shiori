@@ -98,7 +98,7 @@ test('the route\'s frame is the reader\'s page\'s markup, element for element, a
       title: document.title, logo: frame.querySelector('.brand-icon img').naturalWidth, home: frame.querySelector('#snHome').href,
     };
   }, own.elements);
-  assert.ok(own.elements.length > 100, `the page's elements with ids (${own.elements.length})`);
+  assert.ok(own.elements.length > 70, `the page's elements with ids (${own.elements.length})`);
   assert.deepEqual(seen.drawn, own.elements, 'every element of the page, in its order');
   assert.deepEqual(seen.parts, own.parts);
   assert.deepEqual({ header: seen.header, meta: seen.meta, mark: seen.mark, frameMark: seen.frameMark },
@@ -365,7 +365,7 @@ test('entered and left five times (pages turned, a mode, study, a dialog), the r
     await until(page, () => document.querySelectorAll('#thumbStrip .thumb-item img[src]').length > 0, null, { what: 'thumbnails' });
     await page.keyboard.press('g');
     await page.evaluate(() => document.getElementById('readerSettingsBtn').click());
-    await until(page, () => !!document.querySelector('#readerSettingsModal.show'), null, { what: 'reader settings' });
+    await until(page, () => !!document.querySelector('[data-reader-part="settings"]'), null, { what: 'reader settings' });
     await page.keyboard.press('Escape');
     await page.keyboard.press('i');
     await until(page, () => !!document.querySelector('[data-reader-part="properties"]'), null, { what: 'page properties' });

@@ -564,12 +564,12 @@ test('the menu and the dialogs show over the reader\'s chrome, reader settings a
     await page.keyboard.press('Escape');
     // Reader settings open, then I.
     await page.evaluate((nav) => document.getElementById(nav === 'side' ? 'snSettings' : 'readerSettingsBtn').click(), nav);
-    await until(page, () => document.getElementById('readerSettingsModal').classList.contains('show'), null, { what: 'reader settings' });
+    await until(page, () => !!document.querySelector('[data-reader-part="settings"]'), null, { what: 'reader settings' });
     await openProperties(page);
     assert.ok(await onTop(PROPERTIES), `${nav}: page properties over reader settings`);
     await page.keyboard.press('Escape');
     await until(page, async () => !(await import('/app/js/reader-properties.js')).propertiesOpen(), null, { what: 'page properties closed' });
-    assert.equal(await page.evaluate(() => document.getElementById('readerSettingsModal').classList.contains('show')), true, 'Escape closed page properties alone');
+    assert.equal(await page.evaluate(() => !!document.querySelector('[data-reader-part="settings"]')), true, 'Escape closed page properties alone');
     await page.keyboard.press('Escape');
     await page.keyboard.press('b');
     await openFeedback(page, 0);

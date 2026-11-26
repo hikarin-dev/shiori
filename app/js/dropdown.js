@@ -8,10 +8,10 @@
 // free-standing box marked data-fit-widest is held at its widest option's width instead: it
 // doesn't jump between picks, and every option fits the list.
 
-// The selects the look is for: the reader's, in its top bar and its settings (reader.css holds its
-// dropdowns' rules to those two). A page that draws the reader beside controls of its own keeps its
-// selects to itself, the reader shown or left.
-const READER_SELECT = ':is(#topbar, #readerSettingsModal) select';
+// The selects the look is for: the reader's, in its top bar (reader.css holds its dropdowns' rules to
+// it; reader settings' font is the one page's Select). A page that draws the reader beside controls of
+// its own keeps its selects to itself, the reader shown or left.
+const READER_SELECT = ':is(#topbar) select';
 const readerSelects = (more = '') => document.querySelectorAll(READER_SELECT + more);
 
 const ROW = 28;        // rough option row height (px) — only used to judge whether the list fits below

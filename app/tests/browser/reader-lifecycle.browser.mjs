@@ -224,8 +224,12 @@ async function use(page, c) {
   const bar = await page.evaluate(() => { const s = document.querySelectorAll('.scrub-segment'); const a = s[0].getBoundingClientRect(), b = s[s.length - 1].getBoundingClientRect(); return { x1: a.left + a.width / 2, x2: b.left + b.width / 2, y: a.top + a.height / 2 }; });
   await page.mouse.move(bar.x1, bar.y); await page.mouse.down(); await page.mouse.move(bar.x2, bar.y, { steps: 6 }); await page.mouse.move(bar.x1, bar.y, { steps: 4 }); await page.mouse.up(); await sleep(150);
   await page.evaluate(() => document.getElementById('readerSettingsBtn').click());
-  await until(page, () => !!document.querySelector('#readerSettingsModal.show'), null, { what: 'reader settings' });
-  await page.evaluate((c) => { const i = document.getElementById('readerDim'); i.value = String(c * 5 % 40); i.dispatchEvent(new Event('input', { bubbles: true })); }, c);
+  await until(page, () => !!document.querySelector('[data-reader-part="settings"] #readerDim input[type="range"]'), null, { what: 'reader settings' });
+  await page.evaluate((c) => {
+    const i = document.querySelector('#readerDim input[type="range"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, String(c * 5 % 40));
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  }, c);
   await key('Escape'); await sleep(150);
   await key('1'); await active('singleView');
   if (!(await page.evaluate(() => document.body.classList.contains('study-mode')))) await key('b');

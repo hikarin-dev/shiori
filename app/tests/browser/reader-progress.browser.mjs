@@ -68,11 +68,13 @@ after(async () => { await browser?.close(); server?.close(); });
 // opened, the switch pressed if it is not as asked, the settings closed.
 async function setDebug(page, on) {
   await page.evaluate(() => (document.body.classList.contains('reader-side-nav') ? document.getElementById('snSettings') : document.getElementById('readerSettingsBtn')).click());
-  await page.waitForSelector('#readerSettingsModal.show');
+  await page.waitForSelector('[data-reader-part="settings"]');
   await page.$eval('[role="tab"][data-rs-tab="display"]', (tab) => tab.click());
-  if (await page.$eval('#readerDebugLoaded', (input) => input.checked) !== on) await page.click('label[for="readerDebugLoaded"]');
+  if (await page.$eval('#readerDebugLoaded', (input) => input.checked) !== on) {
+    await (await page.evaluateHandle(() => document.getElementById('readerDebugLoaded').parentElement.querySelector('[role="switch"]'))).click();
+  }
   await page.$eval('#readerSettingsClose', (button) => button.click());
-  await until(page, () => !document.querySelector('#readerSettingsModal.show'), null, { what: 'reader settings closed' });
+  await until(page, () => !document.querySelector('[data-reader-part="settings"]'), null, { what: 'reader settings closed' });
 }
 
 async function reader(t, { at = 1, mode = 'strip', fit = 'height', gallery = GALLERY, count = PAGE_COUNT, position = 'bottom', flow = 'chapter', pinned = false } = {}) {

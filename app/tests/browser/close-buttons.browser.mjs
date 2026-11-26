@@ -48,10 +48,12 @@ test('every close button is the reader settings\' X', async (t) => {
   if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
   const page = await openPage(browser, origin);
   await page.goto(`${origin}/reader?g=${GID}`, { waitUntil: 'load' });
-  await until(page, () => document.getElementById('readerSettingsClose'), null, { what: 'the reader' });
-  await page.evaluate(() => document.getElementById('readerSettingsModal').classList.add('show'));
+  await until(page, () => !!document.getElementById('readerSettingsBtn'), null, { what: 'the reader' });
+  // (Reader settings are the app's Dialog since 8f: their X is the Dialog's corner X.)
+  await page.evaluate(() => (document.body.classList.contains('reader-side-nav') ? document.getElementById('snSettings') : document.getElementById('readerSettingsBtn')).click());
+  await until(page, () => !!document.getElementById('readerSettingsClose'), null, { what: 'reader settings' });
   const model = await page.evaluate(look, '#readerSettingsClose');
-  await page.evaluate(() => document.getElementById('readerSettingsModal').classList.remove('show'));
+  await page.keyboard.press('Escape');
   assert.equal(model.w, 28);
   assert.ok(model.glyph, 'the model has an icon');
 

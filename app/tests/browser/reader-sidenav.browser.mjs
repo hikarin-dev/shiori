@@ -106,17 +106,23 @@ async function framesUntilDrawn(page, look, settings) {
 const opacity = (page, sel) => page.$eval(sel, el => Number(getComputedStyle(el).opacity));
 const isOn = (page, sel) => page.$eval(sel, el => el.classList.contains('is-on'));
 const counter = page => page.$eval('#pageCounter', el => Number(el.textContent.split('/')[0].trim()));
-// The reader settings, open on a tab (the one last shown otherwise).
+// The reader settings (drawn beside the reader's frame: src/routes/reader/settings.tsx), open on a tab
+// (the one last shown otherwise).
+const SETTINGS = '[data-reader-part="settings"]';
+const settingsOpen = (page) => page.evaluate((sel) => !!document.querySelector(sel), SETTINGS);
 async function openSettings(page, tab) {
   await page.evaluate(() => (document.body.classList.contains('reader-side-nav') ? document.getElementById('snSettings') : document.getElementById('readerSettingsBtn')).click());
-  await page.waitForSelector('#readerSettingsModal.show');
+  await page.waitForSelector(SETTINGS);
   if (tab) await page.$eval(`[role="tab"][data-rs-tab="${tab}"]`, el => el.click());
 }
+// A switch of theirs pressed (its id is its form input's; the switch is beside it).
+const flip = async (page, id) => (await page.evaluateHandle((id) => document.getElementById(id).parentElement.querySelector('[role="switch"]'), id)).click();
 const rect = (page, sel) => page.$eval(sel, el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; });
-// Sets a range in the reader settings as dragging it would.
-const setRange = (page, id, value) => page.$eval(`#${id}`, (input, value) => {
-  input.value = String(value);
+// Sets a slider in the reader settings as dragging it would (its range input, as the browser sets it).
+const setRange = (page, id, value) => page.$eval(`#${id} input[type="range"]`, (input, value) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, String(value));
   input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 }, value);
 
 test('the settings switch the reader between the top bar and the side controls, and it stays', { skip: !chromePath() }, async t => {
@@ -131,7 +137,7 @@ test('the settings switch the reader between the top bar and the side controls, 
   assert.equal(await page.$eval('#readerNavPlace', b => b.matches(':disabled')), true, 'the classic navigation has no place to pick');
   await page.click('[data-reader-nav="side"]');
   assert.deepEqual(await shown(), { side: true, top: false, rail: true });
-  assert.equal(await page.$eval('[data-reader-nav="side"]', b => b.classList.contains('active')), true);
+  assert.equal(await page.$eval('[data-reader-nav="side"]', b => b.getAttribute('aria-pressed')), 'true');
   assert.deepEqual(await page.$$eval('[data-reader-nav] span', s => s.map(el => el.textContent)), ['Classic', 'Modern']);
   await page.reload({ waitUntil: 'load' });
   await page.waitForSelector('#topbar');   // drawn after the load event where the one page draws the reader
@@ -895,8 +901,8 @@ test('the position picker: a click shows the edges, an edge its places, a place 
   const page = await reader(t);
   await openSettings(page, 'display');
   const place = () => page.evaluate(() => localStorage.getItem('shiori-reader-nav-place'));
-  const tips = () => page.$$eval('#rsPicker .rs-pick-cell', cs => cs.map(c => c.dataset.tip));
-  const hidden = () => page.$eval('#rsPicker', p => p.hidden);
+  const tips = () => page.$$eval('#rsPicker [data-pick-cell]', cs => cs.map(c => c.dataset.tip));
+  const hidden = () => page.evaluate(() => !document.getElementById('rsPicker'));
   await page.click('#readerNavPlace');
   assert.deepEqual(await tips(), ['Top', 'Left', 'Right', 'Bottom'], 'a cross of the edges');
   await page.click('#rsPicker [data-edge="top"]');
@@ -926,15 +932,15 @@ test('the position picker: a click shows the edges, an edge its places, a place 
   assert.deepEqual([await place(), await hidden()], ['right-center', true]);
   await page.click('#readerNavPlace');
   await page.keyboard.press('Escape');
-  assert.deepEqual([await hidden(), await page.$eval('#readerSettingsModal', m => m.classList.contains('show'))], [true, true]);
+  assert.deepEqual([await hidden(), await settingsOpen(page)], [true, true]);
   await page.keyboard.press('Escape');
-  assert.equal(await page.$eval('#readerSettingsModal', m => m.classList.contains('show')), false);
+  await until(page, (sel) => !document.querySelector(sel), SETTINGS, { what: 'reader settings closed' });
 });
 
 test('the progress bar and the auto-scroll bar pick their edge the same way, Off in a corner', { skip: !chromePath() }, async t => {
   const page = await reader(t, { mode: 'single' });
   await openSettings(page, 'display');
-  const cells = () => page.$$eval('#rsPicker .rs-pick-cell', cs => cs.map(c => c.dataset.tip + (c.classList.contains('current') ? '*' : '')));
+  const cells = () => page.$$eval('#rsPicker [data-pick-cell]', cs => cs.map(c => c.dataset.tip + (c.hasAttribute('data-current') ? '*' : '')));
   await page.click('#readerProgress');
   assert.deepEqual(await cells(), ['Top', 'Left', 'Right', 'Bottom*', 'Off']);
   await page.click('#rsPicker [data-edge="right"]');
@@ -1006,7 +1012,7 @@ test('with "pause when going back up" off, the wheel up and a page turned back l
   let page = await reader(t, { gallery: SERIES[0], fit: 'off' });
   await openSettings(page, 'pages');
   assert.equal(await page.$eval('#readerPauseOnUp', i => i.checked), true, 'on by default');
-  await page.click('label[for="readerPauseOnUp"]');
+  await flip(page, 'readerPauseOnUp');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori:readerAutoPauseOnUp')), 'false');
   await page.keyboard.press('Escape');
   await page.evaluate(() => scrollTo(0, 1500));
@@ -1028,12 +1034,12 @@ test("with the reader settings open the reader's keys work, but not the keys the
   const page = await reader(t, { mode: 'single' });
   await openSettings(page, 'reading');
   const state = () => page.evaluate(() => ({ mode: document.getElementById('modeToggle').dataset.state, page: document.getElementById('pageCounter').textContent.trim(),
-    open: document.getElementById('readerSettingsModal').classList.contains('show') }));
+    open: !!document.querySelector('[data-reader-part="settings"]') }));
   await page.keyboard.press('2');
   assert.deepEqual(await state(), { mode: 'double', page: '1 / 10', open: true }, 'a key changes the reading mode behind the settings');
-  await page.focus('#readerAutoScroll');
+  await page.focus('#readerAutoScroll input[type="range"]');
   await page.keyboard.press('ArrowRight');
-  assert.equal(await page.$eval('#readerAutoScroll', i => i.value), '160', 'the slider takes its arrow');
+  assert.equal(await page.$eval('#readerAutoScroll input[type="range"]', i => i.value), '160', 'the slider takes its arrow');
   assert.deepEqual(await state(), { mode: 'double', page: '1 / 10', open: true }, 'and the page stays');
   await page.keyboard.press('k');
   assert.equal(await isOn(page, '#snAuto'), true, 'K plays, the slider focused');
@@ -1051,10 +1057,10 @@ test('the reader settings keep their top from tab to tab and end with the tab sh
     await page.$eval(`[data-rs-tab="${tab}"]`, el => el.click());
     // What shows: the header over the tab, its bottom right under the tab's last setting.
     const panel = await rect(page, `[data-rs-panel="${tab}"]`);
-    boxes[tab] = { top: (await rect(page, '.reader-settings-top')).top, bottom: panel.bottom };
+    boxes[tab] = { top: (await rect(page, '[data-rs="top"]')).top, bottom: panel.bottom };
     assert.equal(await page.$eval(`[data-rs-panel="${tab}"]`, p => getComputedStyle(p).visibility), 'visible');
     const last = await page.$eval(`[data-rs-panel="${tab}"] > :last-child`, el => el.getBoundingClientRect().bottom);
-    assert.ok(Math.abs(panel.bottom - 19 - last) <= 1, `${tab}: ${panel.bottom - last}px below its last setting`);
+    assert.ok(Math.abs(panel.bottom - 21 - last) <= 1, `${tab}: ${panel.bottom - last}px below its last setting`);
   }
   const { reading, pages, display } = boxes;
   assert.ok(reading.top === pages.top && pages.top === display.top, `the top stays put: ${JSON.stringify(boxes)}`);
@@ -1064,14 +1070,14 @@ test('the reader settings keep their top from tab to tab and end with the tab sh
   // Below a shorter tab is the backdrop's: a click there closes the settings.
   await page.$eval('[data-rs-tab="pages"]', el => el.click());
   await page.mouse.click(700, display.bottom - 10);
-  assert.equal(await page.$eval('#readerSettingsModal', m => m.classList.contains('show')), false, 'a click under a shorter tab closes them');
+  await until(page, (sel) => !document.querySelector(sel), SETTINGS, { what: 'a click under a shorter tab to close them' });
   await openSettings(page, 'reading');
   // The fit choices show their keys, as the reading modes do; the page gap is with them.
-  assert.deepEqual(await page.$$eval('[data-reader-fit] .rs-kbd', ks => ks.map(k => k.textContent)), ['Shift+E', 'Shift+Q']);
+  assert.deepEqual(await page.$$eval('[data-reader-fit] [data-slot="kbd"]', ks => ks.map(k => k.textContent)), ['Shift+E', 'Shift+Q']);
   assert.equal(await page.$eval('#readerGap', el => el.closest('[role="tabpanel"]').dataset.rsPanel), 'reading');
   // The spread settings can be set from any mode: the reading mode is on another tab.
   assert.equal(await page.$eval('#modeToggle', m => m.dataset.state), 'strip');
-  assert.equal(await page.$$eval('[data-page-direction], #readerCoverOffset', els => els.some(el => el.matches(':disabled'))), false);
+  assert.equal(await page.$$eval('[data-page-direction], #readerCoverOffset', els => els.some(el => el.matches(':disabled, [data-disabled]'))), false);
   await page.$eval('[data-rs-tab="pages"]', el => el.click());
   await page.click('[data-page-direction="rtl"]');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori:readerPageDirection')), '"rtl"');
@@ -1087,14 +1093,14 @@ test('what Settings → Reader has applies at once from the reader settings', { 
     page: document.getElementById('pageCounter').textContent.trim(), onLine: Math.round(document.querySelector('#stripView .page-wrap[data-page="17"]').getBoundingClientRect().top) }));
   assert.deepEqual(await strip(), { rows: 36, cards: 3, page: '5 / 12', onLine: 0 });
   await openSettings(page, 'pages');
-  await page.click('label[for="readerStripFlow"]');
+  await flip(page, 'readerStripFlow');
   assert.deepEqual(await strip(), { rows: 12, cards: 1, page: '5 / 12', onLine: 0 }, 'one chapter, the same page on the reading line');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori:readerStripMode')), '"chapter"');
-  await page.click('label[for="readerStripFlow"]');
-  await page.click('label[for="readerTransitions"]');
+  await flip(page, 'readerStripFlow');
+  await flip(page, 'readerTransitions');
   assert.deepEqual(await strip(), { rows: 36, cards: 0, page: '5 / 12', onLine: 0 }, 'the whole series, no chapter cards');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori:readerChapterDivider')), 'false');
-  await page.click('label[for="readerOverview"]');
+  await flip(page, 'readerOverview');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori:readerSkipOverview')), 'true');
   // Translation and study: the pages on screen are drawn again as they ask.
   const tr = await reader(t, { gallery: TRANSLATED, mode: 'single' });
@@ -1109,8 +1115,11 @@ test('what Settings → Reader has applies at once from the reader settings', { 
   assert.equal(await tr.$eval('#readerStudyFont', s => s.matches(':disabled')), true, 'the font is for the original shown as text');
   await tr.click('[data-study-original="text"]');
   assert.equal(await tr.$eval('#readerStudyFont', s => s.matches(':disabled')), false);
-  await tr.select('#readerStudyFont', 'kiwi');
-  await tr.click('label[for="readerFurigana"]');
+  await tr.click('#readerStudyFont');
+  await until(tr, () => [...document.querySelectorAll('[data-slot="select-option"]')].some((o) => o.textContent === 'Kiwi Maru' && o.getClientRects().length), null, { what: 'the font list' });
+  await tr.evaluate(() => [...document.querySelectorAll('[data-slot="select-option"]')].find((o) => o.textContent === 'Kiwi Maru').click());
+  await until(tr, () => !document.querySelector('#readerStudyFont[data-popup-open]'), null, { what: 'the font list closed' });
+  await flip(tr, 'readerFurigana');
   await tr.click('[data-study-display="text"]');
   assert.deepEqual(await tr.evaluate(() => ['readerStudyOriginal', 'readerStudySrcFont', 'readerFurigana', 'readerStudyDisplay'].map(k => JSON.parse(localStorage.getItem(`shiori:${k}`)))),
     ['text', 'kiwi', 'on', 'text']);
@@ -1138,7 +1147,7 @@ test('in a narrow window the picker stays inside it, and a click on its button o
   await page.click('#readerNavPlace');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori-reader-nav-place')), 'right-start', 'nothing picked by the click that opened it');
   await page.click('#rsPicker [data-edge="right"]');
-  const cells = await page.$$eval('#rsPicker .rs-pick-cell', cs => cs.map(c => { const r = c.getBoundingClientRect(); return [r.left, r.right]; }));
+  const cells = await page.$$eval('#rsPicker [data-pick-cell]', cs => cs.map(c => { const r = c.getBoundingClientRect(); return [r.left, r.right]; }));
   const width = await page.evaluate(() => document.documentElement.clientWidth);
   assert.equal(cells.length, 6);
   assert.ok(cells.every(([left, right]) => left >= 0 && right <= width), `inside the window: ${JSON.stringify(cells)} of ${width}`);
@@ -1156,9 +1165,9 @@ test('a place button stands in from the right only as far as its picker needs, a
     const at = await page.evaluate(() => {
       const btn = document.getElementById('readerNavPlace').getBoundingClientRect();
       return { centre: (btn.left + btn.right) / 2, right: btn.right,
-        edge: document.getElementById('readerSettingsModal').getBoundingClientRect().right,
-        content: document.getElementById('readerNavPlace').closest('.rs-section').getBoundingClientRect().right,
-        all: [...document.querySelectorAll('[data-rs-panel="display"] .rs-pick')].map(b => b.getBoundingClientRect().right) };
+        edge: document.documentElement.clientWidth,   // the dialog's layer: the window less its scrollbar
+        content: document.getElementById('readerNavPlace').closest('[data-rs="section"]').getBoundingClientRect().right,
+        all: [...document.querySelectorAll('[data-rs-panel="display"] [data-rs="pick"]')].map(b => b.getBoundingClientRect().right) };
     });
     const room = at.edge - at.centre, inset = at.content - at.right, size = `${width}×${height}`;
     assert.equal(inset > 0.01, moves, `${size}: moved in by ${inset}px with ${room}px of room`);
@@ -1167,7 +1176,7 @@ test('a place button stands in from the right only as far as its picker needs, a
     assert.ok(at.all.every(r => r === at.right), `${size}: the place buttons stand in together: ${at.all}`);
     await page.click('#readerNavPlace');
     const picker = await page.evaluate(() => ({ x: document.getElementById('rsPicker').getBoundingClientRect().left,
-      cells: [...document.querySelectorAll('#rsPicker .rs-pick-cell')].map(c => { const r = c.getBoundingClientRect(); return [r.left, r.right]; }) }));
+      cells: [...document.querySelectorAll('#rsPicker [data-pick-cell]')].map(c => { const r = c.getBoundingClientRect(); return [r.left, r.right]; }) }));
     assert.ok(Math.abs(picker.x - at.centre) < 0.02, `${size}: the picker centred on its button: ${picker.x} against ${at.centre}`);
     assert.ok(picker.cells.every(([left, right]) => left >= 0 && right <= at.edge), `${size}: inside the window: ${JSON.stringify(picker.cells)}`);
     await page.keyboard.press('Escape');
@@ -1181,12 +1190,13 @@ test('the reader settings open at their size: nothing in them moves once they sh
   await (await page.createCDPSession()).send('Emulation.setCPUThrottlingRate', { rate: 6 });
   const seen = await page.evaluate(() => new Promise(resolve => {
     document.getElementById('readerSettingsBtn').click();
-    document.querySelector('[data-rs-tab="display"]').click();
     const keys = []; const t0 = performance.now();
     const tick = () => {
-      const box = document.getElementById('readerSettingsBox').getBoundingClientRect();
-      const key = `${box.top},${box.height}`;
-      if (keys.at(-1) !== key) keys.push(key);
+      const tab = document.querySelector('[data-rs-tab="display"]');
+      if (tab && tab.getAttribute('aria-selected') !== 'true') tab.click();
+      const box = document.getElementById('readerSettingsBox')?.getBoundingClientRect();
+      const key = box ? `${box.top},${box.height}` : null;
+      if (key && keys.at(-1) !== key) keys.push(key);
       if (performance.now() - t0 < 1500) requestAnimationFrame(tick); else resolve(keys);
     };
     tick();
@@ -1197,12 +1207,15 @@ test('the reader settings open at their size: nothing in them moves once they sh
 test('the display tab: the navigation bar, the progress bars, and study mode in two columns with a font dropdown', { skip: !chromePath() }, async t => {
   const page = await reader(t);
   await openSettings(page, 'display');
-  assert.deepEqual(await page.$$eval('[data-rs-panel="display"] .rs-heading', hs => hs.map(h => h.textContent)),
+  assert.deepEqual(await page.$$eval('[data-rs-panel="display"] [data-rs="heading"]', hs => hs.map(h => h.textContent)),
     ['Navigation bar', 'Progress bars', 'Translation', 'Study Mode', 'Debug']);
   assert.equal(await page.$eval('#readerProgressLabel', el => el.textContent), 'Page bar');
-  const [original, translation] = await page.$$eval('.rs-cols > .rs-col', cols => cols.map(c => { const r = c.getBoundingClientRect(); return { left: r.left, top: r.top }; }));
+  const [original, translation] = await page.$$eval('[data-rs="col"]', cols => cols.map(c => { const r = c.getBoundingClientRect(); return { left: r.left, top: r.top }; }));
   assert.ok(original.top === translation.top && original.left < translation.left, 'the original and the translation side by side');
-  assert.deepEqual(await page.$$eval('#readerStudyFont option', os => os.map(o => o.value)), ['yasashisa', 'kiwi']);
+  await page.click('[data-study-original="text"]');   // (the font is for the original shown as text)
+  await page.click('#readerStudyFont');
+  await until(page, () => document.querySelectorAll('[data-slot="select-option"]').length === 2, null, { what: 'the font list' });
+  assert.deepEqual(await page.$$eval('[data-slot="select-option"]', os => os.map(o => o.textContent)), ['やさしさアンチック', 'Kiwi Maru']);
 });
 
 test('a rail down a side keeps clear of zoom and the thumbnails: they push it up as they come and grow, at once while resized', { skip: !chromePath() }, async t => {
@@ -1300,7 +1313,7 @@ test('a key pressed after a click rings nothing, and lets hidden controls hide; 
   assert.equal(await opacity(page, '#sideNav'), 0, 'its focus no longer holds the hidden controls up');
   // The settings opened by the mouse: their close button has the focus, but a key rings nothing.
   await page.evaluate(() => document.getElementById('snSettings').click());
-  await page.waitForSelector('#readerSettingsModal.show');
+  await page.waitForSelector(SETTINGS);
   await page.mouse.click(700, 120);   // inside the box, on nothing
   await page.keyboard.press('2');
   assert.equal(await ringed(), null);
@@ -1341,18 +1354,24 @@ test('on a touch screen neither navigation shows the keyboard shortcuts button; 
   assert.ok(Math.abs(top.top - settings.bottom - 2) < 0.5, `settings, then go-to-top: ${settings.bottom} → ${top.top}`);
 });
 
-test('Tab goes to every settings tab, and Enter shows it', { skip: !chromePath() }, async t => {
+// (Since 8f the tabs are one stop for Tab, the app's way with a set of tabs: 1.3's were a stop each.)
+test('Tab reaches the tab shown, and the arrows, Home and End show the others', { skip: !chromePath() }, async t => {
   const page = await reader(t);
-  await openSettings(page, 'reading');
+  await openSettings(page, 'pages');
   await page.focus('#readerSettingsClose');
-  const stops = [];
-  for (let k = 0; k < 3; k++) {
-    await page.keyboard.press('Tab');
-    stops.push(await page.evaluate(() => document.activeElement.dataset.rsTab ?? document.activeElement.id));
-  }
-  assert.deepEqual(stops, ['reading', 'pages', 'display']);
-  await page.keyboard.press('Enter');
-  assert.equal(await page.$eval('[aria-selected="true"]', tab => tab.dataset.rsTab), 'display');
+  await page.keyboard.press('Tab');
+  const at = () => page.evaluate(() => [document.activeElement.dataset.rsTab ?? document.activeElement.id, document.querySelector('[role="tab"][aria-selected="true"]').dataset.rsTab]);
+  assert.deepEqual(await at(), ['pages', 'pages'], 'Tab: the tab shown');
+  await page.keyboard.press('ArrowRight');
+  assert.deepEqual(await at(), ['display', 'display']);
+  await page.keyboard.press('ArrowRight');
+  assert.deepEqual(await at(), ['reading', 'reading'], 'round from the last');
+  await page.keyboard.press('End');
+  assert.deepEqual(await at(), ['display', 'display']);
+  await page.keyboard.press('Home');
+  assert.deepEqual(await at(), ['reading', 'reading']);
+  await page.keyboard.press('Tab');
+  assert.notEqual(await page.evaluate(() => document.activeElement.getAttribute('role')), 'tab', 'the next Tab leaves the tabs');
 });
 
 test('smooth page scrolling: the strip glides to another page, or is there at once when it is off', { skip: !chromePath() }, async t => {
@@ -1369,7 +1388,7 @@ test('smooth page scrolling: the strip glides to another page, or is there at on
   await settle(300);
   await openSettings(page, 'pages');
   assert.equal(await page.$eval('#readerSmoothScroll', i => i.checked), true, 'on by default');
-  await page.click('label[for="readerSmoothScroll"]');
+  await flip(page, 'readerSmoothScroll');
   assert.equal(await page.evaluate(() => localStorage.getItem('shiori:readerSmoothScroll')), 'false');
   await page.keyboard.press('Escape');
   assert.ok(Math.abs(await step()) <= 1, 'off: there at once');

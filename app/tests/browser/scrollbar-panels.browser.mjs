@@ -105,7 +105,7 @@ test('other modal bodies, lists and nested details share native styling and acce
     // suggestions and add-a-chapter results until its switch the same day: their drawing and their rules
     // went with their pages (library.css, overview.css); the one page draws them as its Listbox.)
     const examples = [
-      ['Reader settings', '<div id="readerSettingsBox"><div class="rs-panel active"></div></div>', '.rs-panel'],   // the tab shown scrolls
+      ['Reader settings', '<div id="readerSettingsBox" data-reader-part="settings"><div role="tabpanel" data-rs-panel="reading" style="display:block;overflow-y:auto"></div></div>', '[data-rs-panel]'],   // the tab shown scrolls (a scroll-box: the one page's class, not in this page's sheets)
       // (The feedback dialog and its related bubbles' box, and page properties' body and lists, left
       // 2026-11-26 with their drawing: the app's Dialog (its contents' box held by ui-dialog) and their own
       // boxes, page properties' held by the test after this one on the dialog itself.)

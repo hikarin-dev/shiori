@@ -135,7 +135,7 @@ test('the one page\'s document defaults reach no control of the reader\'s: each 
     const seen = { rest: await page.evaluate(controls) };
     // Reader settings, each tab; the page's right-click menu; page properties.
     await page.evaluate((nav) => document.getElementById(nav === 'side' ? 'snSettings' : 'readerSettingsBtn').click(), nav);
-    await page.waitForSelector('#readerSettingsModal.show');
+    await page.waitForSelector('[data-reader-part="settings"]');
     for (const tab of ['reading', 'pages', 'display']) {
       await page.click(`[data-rs-tab="${tab}"]`);
       await settle(page);

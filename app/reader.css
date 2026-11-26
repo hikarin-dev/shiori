@@ -1,8 +1,7 @@
 /* reader.css — the reader. Its colours are the one page's tokens (src/styles/tokens.css: --primary
    the brand colour, --muted-foreground secondary text, --reader-background the reader's ground…).
    Reset and tooltip come from the one page's sheets; the spin, the study-mode typefaces, the brand and
-   the page menu and the (i) icon, below, were 1.3's base.css's, and the dropdowns' look, at the end, was
-   dropdown.css's. The page's right-click menu is the one page's (src/routes/reader/page-menu.tsx).
+   the page menu, below, were 1.3's base.css's, and the dropdowns' look, at the end, was dropdown.css's. The page's right-click menu is the one page's (src/routes/reader/page-menu.tsx).
    What it sets on :root, html and body holds only while the reader is in the document: <html
    data-reader>, the reader's mark (the route sets it while the reader shows; 1.3's own page had it from
    the start). :where() adds no weight, so each rule weighs what it did. */
@@ -12,9 +11,10 @@
    the text around it and has no ground, frame or rounding, src/styles/document.css). Each property
    those defaults set goes back to the browser's own (revert: the same on every system), ligatures off
    as 1.3's base.css had them. Zero weight and first: every rule of the reader's outweighs it. Its roots
-   are the reader's parts that hold controls, all in its frame. (The page's menu, page properties and the
-   feedback dialog are the one page's components since 8e, drawn beside the frame: src/routes/reader/.) */
-:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal) :where(button, input, select, optgroup, textarea),
+   are the reader's parts that hold controls, all in its frame. (Reader settings, the page's menu, page
+   properties and the feedback dialog are the one page's components, drawn beside the frame:
+   src/routes/reader/.) */
+:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport) :where(button, input, select, optgroup, textarea),
 :where(#scrollTopBtn) {
   font: revert; font-variant-ligatures: none; letter-spacing: revert;
   color: revert; background-color: revert; border: revert; border-radius: revert; opacity: revert;
@@ -78,130 +78,6 @@
     appearance: none; padding-right: 22px;
     background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c7c8c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 6px center / 11px;
   }
-}
-
-/* ── An (i) beside a setting's name: more detail on hover (tooltip.js) ── */
-:where(#readerSettingsModal) .field-info {
-  display: inline-flex;
-  margin-left: 6px;
-  vertical-align: -2px;
-  color: var(--muted-foreground);
-  cursor: help;
-}
-:where(#readerSettingsModal) .field-info:hover,
-:where(#readerSettingsModal) .field-info:focus-visible { color: var(--foreground); outline: none; }
-:where(#readerSettingsModal) .field-info svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* ── Button in the reader settings: neutral, or .primary / .danger (1.3's base.css's) ── */
-:where(#readerSettingsModal) .btn {
-  flex: none;
-  padding: 7px 14px;
-  background: transparent;
-  border: 1px solid var(--input);
-  border-radius: 6px;
-  color: var(--foreground);
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.55;
-  cursor: pointer;
-}
-:where(#readerSettingsModal) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
-:where(#readerSettingsModal) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-:where(#readerSettingsModal) .btn.danger { background: var(--destructive-fill); border-color: transparent; color: var(--destructive); }
-:where(#readerSettingsModal) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
-:where(#readerSettingsModal) .btn.danger:hover:not(:disabled) { background: var(--destructive-fill-hover); border-color: transparent; }
-:where(#readerSettingsModal) .btn:disabled { opacity: .6; cursor: default; }
-
-/* ── Icon button in a dialog's corner: the close X, or a link beside it (1.3's base.css's) ── */
-:where(#readerSettingsModal) .icon-btn {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  text-decoration: none;
-}
-:where(#readerSettingsModal) .icon-btn:hover { background: var(--secondary); color: var(--foreground); }
-:where(#readerSettingsModal) .icon-btn[hidden] { display: none; }
-:where(#readerSettingsModal) .icon-btn > svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* ── Switch: a hidden checkbox and its track (the reader's settings) ── */
-:where(#readerSettingsModal) .switch-control {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  cursor: pointer;
-}
-
-:where(#readerSettingsModal) .switch-control input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-:where(#readerSettingsModal) .switch-track {
-  position: absolute;
-  inset: 0;
-  background: #303038;
-  border: 1px solid #4a4a55;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color .15s ease, border-color .15s ease;
-}
-
-:where(#readerSettingsModal) .switch-track::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  background: #b3b3bf;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
-  transition: background-color .15s ease, transform .15s ease;
-}
-
-:where(#readerSettingsModal) .switch-control input:checked + .switch-track {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-:where(#readerSettingsModal) .switch-control input:checked + .switch-track::after {
-  background: #fff;
-  transform: translateX(16px);
-}
-
-/* The checkbox itself is hidden, so its track shows the browser's own focus ring. */
-:where(#readerSettingsModal) .switch-control input:focus-visible + .switch-track {
-  outline: auto 1px -webkit-focus-ring-color;
 }
 
 :root:where([data-reader]) {
@@ -911,10 +787,10 @@ body.thumb-dragging * {
 #bottombar[data-position="right"] .scrub-view + .scrub-view { border-left: 0; border-top: 1px solid var(--reader-background); }
 
 /* ── Keybind modal ── */
-/* The shortcuts and reader-settings modals hold the pages still behind them without hiding the
-   page's scrollbar: as scroll containers that contain overscroll, no wheel or swipe started over
-   them reaches the pages. They reserve the room of a scrollbar that isn't there, as the body does,
-   so their box stays put when a change behind them brings the scrollbar or takes it away. */
+/* The shortcuts modal holds the pages still behind it without hiding the page's scrollbar: as a scroll
+   container that contains overscroll, no wheel or swipe started over it reaches the pages. It reserves
+   the room of a scrollbar that isn't there, as the body does, so its box stays put when a change behind
+   it brings the scrollbar or takes it away. */
 #keybindModal {
   display: none; position: fixed; inset: 0; z-index: 400;
   background: var(--backdrop);
@@ -948,227 +824,6 @@ body.thumb-dragging * {
   background: var(--reader-background); border: 1px solid var(--border);
   border-radius: 4px; padding: 2px 6px;
   font-size: 10px; color: var(--foreground); font-family: inherit; white-space: nowrap;
-}
-
-/* ── Reader settings modal ── */
-/* The box is as tall as its tallest tab (every tab laid out in one grid cell) and centred, so its top
-   and the tabs stay where they are from tab to tab. Only the header and the tab shown are drawn and
-   take the pointer: the room below a shorter tab is the backdrop's, and a click there closes the
-   settings as one anywhere outside does. */
-#readerSettingsModal {
-  --rs-gutter: 20px;      /* the room around the box */
-  --rs-box-w: 480px;      /* the box's width, where the window has it */
-  --rs-pad-x: 18px;       /* the header's and the tabs' sides */
-  --rs-pick-size: 38px;   /* a place button, and each cell of its picker */
-  --rs-pick-room: 71px;   /* from a place button's centre to the window's edge, for its picker: a cell a step out, half a cell and a margin */
-  display: none; position: fixed; inset: 0; z-index: 410;
-  background: var(--backdrop); align-items: center; justify-content: center;
-  padding: var(--rs-gutter) calc(var(--rs-gutter) + var(--page-scrollbar-gap)) var(--rs-gutter) var(--rs-gutter);
-  overflow: hidden; overscroll-behavior: contain;
-  /* How far the window's right edge is from the box's left edge, for the place buttons (.rs-pick-wrap):
-     the box is centred in this fixed layer's content, the window less a native scrollbar (as --cb-w)
-     and the padding. Viewport units, not this layer's container units: those had the browser restyle
-     everything in it during layout, more than doubling a resize's layout while the box is open. */
-  --rs-room-w: calc(100vw - var(--page-scrollbar-width) - 2 * var(--rs-gutter));
-  --rs-reach: calc(var(--rs-gutter) + var(--page-scrollbar-gap) + (var(--rs-room-w) + min(var(--rs-box-w), var(--rs-room-w))) / 2);
-}
-#readerSettingsModal.show { display: flex; }
-#readerSettingsBox {
-  display: flex; flex-direction: column; width: min(var(--rs-box-w), 100%); max-height: calc(100vh - 2 * var(--rs-gutter));
-  pointer-events: none;
-}
-/* The header and the tabs stay put; the tab shown scrolls under them on its own, its scrollbar inside
-   its frame. */
-.reader-settings-top {
-  flex: none; padding: 0 var(--rs-pad-x) 16px; pointer-events: auto;
-  background: var(--popover); border: 1px solid var(--input); border-bottom: 0; border-radius: 12px 12px 0 0;
-}
-.reader-settings-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 16px 0 12px;
-}
-/* The tabs: one segmented control, the chosen one a shade lighter, like the choices below. */
-.rs-tabs {
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 3px; padding: 3px;
-  background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 9px;
-}
-.rs-tabs button {
-  min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--muted-foreground); cursor: pointer;
-  font-family: inherit; font-size: 11px; font-weight: 600;
-  transition: background-color .12s ease, color .12s ease;
-}
-.rs-tabs button:hover { color: var(--foreground); }
-.rs-tabs button[aria-selected="true"] { background: var(--secondary); color: var(--foreground); }
-/* The tabs' cell is as tall as the tallest tab, or the room left under the header; a tab taller than
-   that scrolls. */
-.rs-panels { display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; }
-.rs-panel {
-  grid-area: 1 / 1; align-self: start; min-width: 0; max-height: 100%; overflow: auto; padding: 0 var(--rs-pad-x) 18px;
-  background: var(--popover); border: 1px solid var(--input); border-top: 0; border-radius: 0 0 12px 12px;
-  box-shadow: 0 18px 55px rgba(0,0,0,.45);
-}
-/* A section is as wide as its tab less a scrollbar, for what's in it (a scroller's own container
-   width would count its scrollbar too). */
-.rs-section { container-type: inline-size; }
-.rs-panel.active { pointer-events: auto; }
-.rs-panel:not(.active) { visibility: hidden; }
-.reader-settings-title { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 700; }
-.reader-settings-title .rs-ico { width: 17px; height: 17px; color: var(--muted-foreground); }
-
-/* One line-icon style for every glyph in the modal. */
-.rs-ico {
-  width: 15px; height: 15px; flex: none;
-  fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-}
-.rs-ico .rs-bar { stroke-width: 3; }   /* the progress bar inside the screen outline */
-
-/* Sections are set apart by space and a quiet heading alone; every control sits straight on the
-   modal, and the controls' own frames are the only lines inside it. */
-.rs-section + .rs-section { margin-top: 22px; }
-.rs-heading {
-  margin: 0 0 10px; color: var(--muted-dim);
-  font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
-}
-/* A setting: its name over its control, or beside it (rs-row-inline). */
-.rs-row { display: grid; gap: 8px; min-width: 0; border: 0; }   /* some rows are fieldsets */
-.rs-row + .rs-row { margin-top: 16px; }
-.rs-row-inline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.rs-label { color: var(--foreground); font-size: 11.5px; font-weight: 600; }
-.rs-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-/* A setting the current mode doesn't use stays in place, dimmed like Settings' disabled options. */
-.rs-row[disabled] { opacity: .42; }
-.rs-label-row output { color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
-
-/* Choices come as separate buttons; the chosen one takes Settings' highlight: a shade lighter than
-   the panel, in a lighter frame. */
-.rs-choices { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
-.rs-choices button {
-  min-width: 0; min-height: 34px; padding: 6px 8px;
-  display: flex; align-items: center; justify-content: center; gap: 7px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted-foreground);
-  font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.3; cursor: pointer;
-  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
-}
-.rs-choices button span { min-width: 0; overflow-wrap: anywhere; }
-.rs-choices button:hover:not(:disabled, .active) { border-color: var(--input); color: var(--foreground); }
-.rs-choices button:disabled { cursor: default; }
-.rs-choices button.active { background: var(--secondary); border-color: var(--input); color: var(--foreground); }
-/* Three or more choices stack each icon over its name, so every name keeps room. */
-.rs-choices-stack button { flex-direction: column; gap: 5px; min-height: 52px; padding: 7px 4px; font-size: 10.5px; }
-.rs-choices-stack .rs-ico { width: 17px; height: 17px; }
-
-/* A setting's keyboard shortcut: in its button's corner, or after its name. */
-.rs-kbd {
-  padding: 0 3px; border: 1px solid var(--input); border-radius: 3px;
-  color: var(--muted-foreground); font-family: inherit; font-size: 8.5px; font-weight: 600; line-height: 13px;
-}
-.rs-choices button { position: relative; }
-.rs-choices button > .rs-kbd { position: absolute; top: 5px; right: 5px; }
-.rs-label > .rs-kbd { margin-left: 7px; vertical-align: 1px; }
-
-/* A tiny numbered spread for the page direction choices. */
-.rs-spread { display: inline-flex; gap: 2px; flex: none; }
-.rs-spread i {
-  display: grid; place-items: center; width: 11px; height: 15px;
-  border: 1.5px solid currentColor; border-radius: 2px;
-  font-size: 8px; font-style: normal; font-weight: 700; line-height: 1;
-}
-
-.rs-stepper {
-  display: grid; grid-template-columns: 30px 54px 30px; align-items: center; flex: none;
-  padding: 3px; background: var(--surface-subtle); border: 1px solid var(--input); border-radius: 8px;
-}
-.rs-stepper button {
-  display: grid; place-items: center; height: 28px; padding: 0;
-  border: 0; border-radius: 5px; background: transparent; color: var(--muted-foreground); cursor: pointer;
-}
-.rs-stepper button:hover:not(:disabled) { background: var(--secondary); color: var(--foreground); }
-.rs-stepper button:disabled { opacity: .35; cursor: default; }
-.rs-stepper output { text-align: center; color: var(--foreground); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-/* A slider drawn like the switch: a dim track, filled in the accent up to the value (--fill, set by
-   reader.js), and a white knob. The browser's own track stays light beside an accent colour. */
-.rs-range {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 16px; margin: 0; background: transparent; cursor: pointer;
-}
-.rs-range::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 999px;
-  background: linear-gradient(var(--primary), var(--primary)) 0 0 / var(--fill, 0%) 100% no-repeat, var(--input);
-}
-.rs-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
-}
-.rs-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--input); }
-.rs-range::-moz-range-progress { height: 4px; border-radius: 999px; background: var(--primary); }
-.rs-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
-
-/* Two small choices beside a setting's name. */
-.rs-choices-small { gap: 6px; flex: none; }
-.rs-choices-small button { min-height: 28px; padding: 4px 12px; font-size: 10.5px; }
-/* Settings side by side, each column its name over its controls. */
-.rs-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.rs-col { display: grid; gap: 8px; align-content: start; min-width: 0; }
-.rs-col-opts { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.rs-col-opts[disabled] { opacity: .42; }
-.rs-col-name { color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
-/* A dropdown, in the app's one look (the dropdowns' rules at the end). */
-.rs-select {
-  --dd-inset: 10px;
-  width: 100%; min-width: 0; height: 30px; padding: 0 var(--dd-inset);
-  background: var(--dd-bg); border: 1px solid var(--border); border-radius: var(--dd-radius);
-  color: var(--foreground); font-family: inherit; font-size: 11px; cursor: pointer;
-}
-.rs-select:disabled { cursor: default; }
-.rs-font-yasashisa { font-family: 'Yasashisa Antique', sans-serif; }
-.rs-font-kiwi { font-family: 'Kiwi Maru', sans-serif; }
-
-/* A placement: what it is now, and a button showing it that opens the picker. Where the window leaves
-   its button less room on the right than the picker needs, it stands in from the right by just what's
-   missing, so the picker stays centred on it. The button's centre is half its width in from the tab's
-   content edge, which is the box's left edge, its 1px border, its padding and its content width
-   (100cqw, the section's) in from the window's right edge. */
-.rs-pick-wrap {
-  display: flex; align-items: center; gap: 10px; flex: none;
-  margin-right: max(0px, var(--rs-pick-room) - var(--rs-pick-size) / 2 - (var(--rs-reach) - 1px - var(--rs-pad-x) - 100cqw));
-}
-.rs-pick-value { color: var(--muted-foreground); font-size: 11px; font-weight: 600; white-space: nowrap; }
-.rs-pick, .rs-pick-cell {
-  display: grid; place-items: center; width: var(--rs-pick-size); height: var(--rs-pick-size); padding: 0;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted-foreground);
-  cursor: pointer; transition: background-color .12s ease, border-color .12s ease, color .12s ease;
-}
-.rs-pick:hover:not(:disabled), .rs-pick[aria-expanded="true"] { border-color: var(--input); color: var(--foreground); }
-.rs-pick:disabled { cursor: default; }
-.rs-pick .rs-ico, .rs-pick-cell .rs-ico { width: 20px; height: 20px; }
-/* The picker: its choices around the button that opened it (anchored to it), a cross of edges, then
-   the places along the edge picked, each in its cell of the 3×3 (--col, --row, 44px apart); as near
-   the button as the window allows: a cell a step out, half a cell and a margin inside it (the button
-   makes that room on the right, .rs-pick-wrap). Pressed and dragged, it's picked where the drag lets go. */
-.rs-pick[aria-expanded="true"] { anchor-name: --rs-pick; }
-.rs-picker {
-  position: fixed; z-index: 430; width: 0; height: 0; touch-action: none; pointer-events: auto;
-  position-anchor: --rs-pick;
-  left: clamp(var(--rs-pick-room), anchor(center), calc(100% - var(--rs-pick-room)));
-  top: clamp(var(--rs-pick-room), anchor(center), calc(100% - var(--rs-pick-room)));
-}
-.rs-picker[hidden] { display: none; }
-.rs-pick-cell {
-  position: absolute; left: calc(var(--col) * 44px); top: calc(var(--row) * 44px); transform: translate(-50%, -50%);
-  background: var(--secondary); border-color: var(--input); box-shadow: 0 8px 22px rgba(0, 0, 0, .5);
-}
-.rs-pick-cell.current { color: var(--primary); }
-.rs-pick-cell:is(:hover, .hot, :focus-visible) { border-color: var(--primary); color: var(--foreground); }
-.rs-pick-cell.current:is(:hover, .hot) { color: var(--primary); }
-
-@media (max-width: 540px) {
-  /* A sheet at the bottom, as tall as its tallest tab, so its top stays put from tab to tab: the tab
-     shown reaches down to its foot. */
-  #readerSettingsModal { --rs-gutter: 10px; --rs-pad-x: 14px; align-items: flex-end; }
-  .rs-panel { align-self: stretch; padding-bottom: 14px; border-radius: 0 0 6px 6px; }
-  .rs-choices-stack button { font-size: 9.5px; }
 }
 
 /* ── The status line of a page's translation ── */
@@ -1533,12 +1188,12 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
 }
 
 @supports (appearance: base-select) {
-  :where(#topbar, #readerSettingsModal) select,
-  :where(#topbar, #readerSettingsModal) ::picker(select) { appearance: base-select; }
+  :where(#topbar) select,
+  :where(#topbar) ::picker(select) { appearance: base-select; }
 
   /* The box stays one line tall, however long the chosen option's text; text and caret share its
      vertical centre. */
-  :where(#topbar, #readerSettingsModal) select {
+  :where(#topbar) select {
     align-items: center;
     gap: 8px;
     overflow: hidden;
@@ -1546,21 +1201,21 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     white-space: nowrap;
     transition: background-color .12s ease, border-color .12s ease, border-radius .18s ease;
   }
-  :where(#topbar, #readerSettingsModal) select:hover:not(:open) { background-color: var(--dd-bg-hover); border-color: var(--dd-line); }
-  :where(#topbar, #readerSettingsModal) select:open {
+  :where(#topbar) select:hover:not(:open) { background-color: var(--dd-bg-hover); border-color: var(--dd-line); }
+  :where(#topbar) select:open {
     background-color: var(--dd-bg);
     border-color: var(--dd-line);
     border-end-start-radius: 0;
     border-end-end-radius: 0;
   }
-  :where(#topbar, #readerSettingsModal) select.opens-up:open {
+  :where(#topbar) select.opens-up:open {
     border-start-start-radius: 0;
     border-start-end-radius: 0;
     border-end-start-radius: var(--dd-radius);
     border-end-end-radius: var(--dd-radius);
   }
 
-  :where(#topbar, #readerSettingsModal) select::picker-icon {
+  :where(#topbar) select::picker-icon {
     content: '';
     display: block;
     flex: 0 0 auto;
@@ -1571,14 +1226,14 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
     transition: rotate .18s ease, background-color .12s ease;
   }
-  :where(#topbar, #readerSettingsModal) select:is(:hover, :open)::picker-icon { background-color: var(--dd-muted); }
-  :where(#topbar, #readerSettingsModal) select:open::picker-icon { rotate: 180deg; }
+  :where(#topbar) select:is(:hover, :open)::picker-icon { background-color: var(--dd-muted); }
+  :where(#topbar) select:open::picker-icon { rotate: 180deg; }
 
   /* The list: exactly the box's width, overlapping its edge by the border so the two read as one
      outline, with a faint seam where they meet. It unrolls away from the box. At most eight
      options show at once (a row is one line plus the option's 6px padding above and below); the
      rest scroll. dropdown.js assumes the same eight when choosing which way the list opens. */
-  :where(#topbar, #readerSettingsModal) ::picker(select) {
+  :where(#topbar) ::picker(select) {
     box-sizing: border-box;
     max-height: calc(8 * (1lh + 12px) + 10px);
     overflow-y: auto;
@@ -1598,39 +1253,39 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     clip-path: inset(0 -24px 100% -24px);
     transition: clip-path .18s ease-out, opacity .12s ease-out, display .18s allow-discrete, overlay .18s allow-discrete;
   }
-  :where(#topbar, #readerSettingsModal) select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
-  :where(#topbar, #readerSettingsModal) select:has(.dd-options)::picker(select) { overflow: hidden; }
-  :where(#topbar, #readerSettingsModal) .dd-options { max-height: calc(8 * (1lh + 12px)); overflow-y: auto; }
+  :where(#topbar) select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
+  :where(#topbar) select:has(.dd-options)::picker(select) { overflow: hidden; }
+  :where(#topbar) .dd-options { max-height: calc(8 * (1lh + 12px)); overflow-y: auto; }
   @starting-style {
-    :where(#topbar, #readerSettingsModal) select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
+    :where(#topbar) select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
   }
 
-  :where(#topbar, #readerSettingsModal) select.opens-up::picker(select) {
+  :where(#topbar) select.opens-up::picker(select) {
     margin: 0 0 -1px;
     position-area: block-start span-inline-end;
     border-color: var(--dd-line) var(--dd-line) var(--dd-seam);
     border-radius: var(--dd-radius) var(--dd-radius) 0 0;
     clip-path: inset(100% -24px 0 -24px);
   }
-  :where(#topbar, #readerSettingsModal) select.opens-up:open::picker(select) { clip-path: inset(-24px -24px 0 -24px); }
+  :where(#topbar) select.opens-up:open::picker(select) { clip-path: inset(-24px -24px 0 -24px); }
   @starting-style {
-    :where(#topbar, #readerSettingsModal) select.opens-up:open::picker(select) { clip-path: inset(100% -24px 0 -24px); }
+    :where(#topbar) select.opens-up:open::picker(select) { clip-path: inset(100% -24px 0 -24px); }
   }
 
-  :where(#topbar, #readerSettingsModal) select option {
+  :where(#topbar) select option {
     padding: 6px var(--dd-inset);
     background: transparent;
     color: var(--dd-muted);
     white-space: normal;
     transition: background-color .12s ease, color .12s ease;
   }
-  :where(#topbar, #readerSettingsModal) select option::checkmark { display: none; }
-  :where(#topbar, #readerSettingsModal) select option:checked { color: var(--dd-text); font-weight: 600; }
-  :where(#topbar, #readerSettingsModal) select option:is(:hover, :focus-visible) { background: var(--dd-bg-hover); color: var(--dd-text); outline: none; }
+  :where(#topbar) select option::checkmark { display: none; }
+  :where(#topbar) select option:checked { color: var(--dd-text); font-weight: 600; }
+  :where(#topbar) select option:is(:hover, :focus-visible) { background: var(--dd-bg-hover); color: var(--dd-text); outline: none; }
 
   @media (prefers-reduced-motion: reduce) {
-    :where(#topbar, #readerSettingsModal) select,
-    :where(#topbar, #readerSettingsModal) select::picker-icon,
-    :where(#topbar, #readerSettingsModal) ::picker(select) { transition: none; }
+    :where(#topbar) select,
+    :where(#topbar) select::picker-icon,
+    :where(#topbar) ::picker(select) { transition: none; }
   }
 }
