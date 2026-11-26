@@ -180,6 +180,7 @@ test('the list\'s rows do what the bar\'s buttons do, and a press on one puts th
   // On the bar: Translate and Study light in the accent when on.
   await page.click('#translateSeg');
   await until(page, () => document.getElementById('translateSeg').classList.contains('active'), null, { what: 'translate on' });
+  await until(page, () => document.getElementById('translateSeg').getAnimations().length === 0, null, { what: 'its colour eased in' });   // (read mid-ease under load it was still the white)
   const on = await page.$eval('#translateSeg', (b) => [getComputedStyle(b).color, getComputedStyle(b).backgroundColor]);
   const off = await page.$eval('#studySeg', (b) => getComputedStyle(b).color);
   assert.notEqual(on[0], off, 'what is on is in the accent');
