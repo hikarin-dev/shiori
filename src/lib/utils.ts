@@ -1,24 +1,12 @@
 // cn() — joins class names and settles conflicts between Tailwind utilities, the last one winning.
-// Told the theme's own names (styles/tokens.css): left to its defaults it takes text-13 for a colour,
-// so `text-13 text-primary` would lose the size, and it can't tell rounded-6 from rounded-8. A test
-// (app/tests/class-merge.test.mjs) holds these lists to tokens.css.
-import { createCn } from 'cn/config';
+// Told the theme's own names (./cn-config.ts); its tables are compiled from them by the build's script
+// (build/cn-tables.mjs → ./cn-tables.ts), not at every page's start.
+import { createCn } from 'cn/engine';
+import tables from './cn-tables.ts';
 
-export const TOKENS = {
-  text: ['8', '9', '10', '10.5', '11', '11.5', '12', '12.5', '13', '14', '15', '16', '18', '20', '32', '34', '48'],
-  radius: ['2', '3', '4', '5', '6', '8', '10', '12', 'pill', 'circle'],
-  shadow: ['popover', 'toast', 'dialog', 'lift', 'knob'],
-  ease: ['standard', 'out', 'emphasis', 'settle'],
-  z: ['page-popup', 'header', 'page-menu', 'page-overlay', 'dialog', 'status', 'status-menu', 'dialog-over', 'menu', 'drop', 'tooltip', 'toast', 'notice', 'select'],
-  duration: ['fast', 'base', 'open', 'move', 'slow'],
-};
+export { TOKENS } from './cn-config.ts';
 
-export const cn = createCn({
-  extend: {
-    theme: { text: TOKENS.text, radius: TOKENS.radius, shadow: TOKENS.shadow, ease: TOKENS.ease },
-    classGroups: { z: [{ z: TOKENS.z }], duration: [{ duration: TOKENS.duration }] },
-  },
-});
+export const cn = createCn(tables);
 
 // classCache() — a component's classes for one set of choices, worked out once. Its variants and cn()
 // are pure, and a page draws the same few looks by the hundred (a library page: 180 buttons, some 400
