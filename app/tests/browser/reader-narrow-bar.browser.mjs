@@ -1,11 +1,11 @@
-// reader-narrow-bar.browser.mjs — the reader's classic top bar at 400px wide and under (the owner's
+// reader-narrow-bar.browser.mjs — the reader's classic top bar at 430px wide and under (the owner's
 // design, A3, chosen 2026-11-26; plans/frontend-react-probes/reader-a3/mock.html): one flat band, at most
 // five 44px buttons (Home, the first three of Translate, Study, Thumbnails, Auto-scroll and Reader
 // settings that the gallery has, "⋯"), the page number as text; the rest in the "⋯" list, headed by the
 // gallery's number and title, with the reading mode's three choices, Pin header, the keys (with a mouse)
 // and the page menu's Overview and Settings under "Go to". For the mock's three galleries, at its three
-// widths, with a mouse and on a touch screen; what its rows do; the window crossing 400px each way; long
-// words and a long page number; a short window; the keyboard. Wider than 400px the bar is as it was
+// widths, with a mouse and on a touch screen; what its rows do; the window crossing 430px each way; long
+// words and a long page number; a short window; the keyboard. Wider than 430px the bar is as it was
 // (reader-sidenav's and reader-styles' tests, and the captures, hold that).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,9 +100,11 @@ const CASES = {
   plain: { bar: ['home', 'thumbBtn', 'autoBtn', 'readerSettingsBtn', 'tbMenuBtn'], list: ['tbMeta', 'modeToggle', 'readerPinBtn', 'keybindBtn', 'overview', 'settings'] },
 };
 
-test('at 400px and under the bar is one band of five 44px buttons, the first three the gallery has between Home and "⋯", the rest in the list; for a finger as for a mouse', { skip: !chromePath() }, async (t) => {
+test('at 430px and under the bar is one band of five 44px buttons, the first three the gallery has between Home and "⋯", the rest in the list; for a finger as for a mouse', { skip: !chromePath() }, async (t) => {
   for (const kind of Object.keys(CASES)) {
-    for (const width of [390, 360, 320]) {
+    // 430: the widest the narrow bar is drawn at (wider, the wide bar of a gallery with a translation and
+    // study layers fits), as the larger phones are; 412 another of theirs.
+    for (const width of [430, 412, 390, 360, 320]) {
       for (const touch of [false, true]) {
         const what = `${kind}, ${width}px, ${touch ? 'touch' : 'mouse'}`;
         const page = await reader(t, kind, { width, height: 760, hasTouch: touch, isMobile: touch });
@@ -197,10 +199,10 @@ test('the list\'s rows do what the bar\'s buttons do, and a press on one puts th
   await until(page, (g) => location.pathname === '/overview' && new URLSearchParams(location.search).get('g') === g, G.ts, { what: 'the overview' });
 });
 
-test('the window crossing 400px puts every control where the bar it shows has it, each way, and the wide bar folds as before', { skip: !chromePath() }, async (t) => {
+test('the window crossing 430px puts every control where the bar it shows has it, each way, and the wide bar folds as before', { skip: !chromePath() }, async (t) => {
   const order = (page) => page.evaluate(() => [...document.querySelectorAll('#topbar [id]')].map((el) => `${el.parentElement.id || el.parentElement.className}>${el.id}`).join(' '));
   const shown = (page) => page.evaluate(() => [...document.querySelectorAll('#topbar button, #topbar a, #topbar select')].filter((el) => el.getClientRects().length).map((el) => el.id || el.className).join(' '));
-  // What of the bar is easing, in the frame after the window has changed (a colour eased across 400px
+  // What of the bar is easing, in the frame after the window has changed (a colour eased across 430px
   // before: the buttons' white turning to the wide bar's grey over 0.12s).
   const easing = (page) => page.evaluate(() => document.getAnimations().filter((a) => a.effect?.target?.closest?.('#topbar')).map((a) => a.transitionProperty));
   for (const kind of ['ts', 'plain']) {
@@ -287,4 +289,18 @@ test('page properties on a phone with a translated gallery is as wide as the win
   await until(page, () => document.querySelectorAll('[data-reader-part="properties"] [data-pp="section"]').length > 1, null, { what: 'page properties' });
   const box = await page.$eval('[data-reader-part="properties"]', (el) => { const r = el.getBoundingClientRect(); return [r.left, Math.round(innerWidth - r.right), innerWidth]; });
   assert.deepEqual(box, [8, 8, 390], 'page properties 8px from the window\'s sides');
+});
+
+// Why 430: the wide bar of a gallery with a translation and study layers (the most it ever holds) needs
+// that much. Just over it the wide bar is drawn, and fits; the mock's 400 left the phones between (412,
+// 414, 428, 430px wide) with the old bar past the window's side.
+test('just over 430px the wide bar is drawn and fits: nothing past the window\'s side for a gallery with a translation and study', { skip: !chromePath() }, async (t) => {
+  for (const width of [431, 440]) {
+    const page = await reader(t, 'ts', { width, height: 760 });
+    const seen = await page.evaluate(() => ({ narrow: matchMedia('(max-width: 430px)').matches, page: document.documentElement.scrollWidth, window: innerWidth,
+      more: document.getElementById('tbMenuBtn').getBoundingClientRect().right }));
+    assert.equal(seen.narrow, false, `${width}: the wide bar`);
+    assert.ok(seen.page <= seen.window, `${width}: the page is ${seen.page}px wide in a window of ${seen.window}`);
+    assert.ok(seen.more <= seen.window, `${width}: "⋯" ends at ${seen.more}`);
+  }
 });

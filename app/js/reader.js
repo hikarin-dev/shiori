@@ -4983,15 +4983,15 @@ window.addEventListener('resize', _layoutStage2, { signal: _rsSignal });
 document.fonts?.ready.then(() => { if (!_rsStopped) _recomputeFold(); });
 new ResizeObserver(_recomputeFold).observe(document.getElementById('pageCounter'));
 
-// ── The narrow bar: 400px wide and under (the owner's design, A3) ──
+// ── The narrow bar: 430px wide and under (the owner's design, A3) ──
 // reader.css draws it. What the stylesheet cannot know is done here, one way, as the fold above moves
 // the translate ⇄ study switch: which of Translate, Study, Thumbnails, Auto-scroll and Reader settings
 // the gallery has (the first three stand on the bar, the rest are rows of the "⋯" list), and the
 // controls that are the list's there and the bar's wider (the gallery's number and title, the reading
 // mode, Thumbnails, and the keys after Pin header). Wider, each goes back where the frame has it. Done
-// as the reader starts (before the frame's first paint), as the window crosses 400px (in the frame the
+// as the reader starts (before the frame's first paint), as the window crosses 430px (in the frame the
 // stylesheet turns in), and when what the gallery has is known.
-const _narrow = matchMedia('(max-width: 400px)');
+const _narrow = matchMedia('(max-width: 430px)');
 const tbRows = tbExtra.querySelector('.tb-rows');
 let _barPlaced = 'wide';
 function _placeNarrowBar() {
@@ -5013,7 +5013,7 @@ function _placeNarrowBar() {
   readerPinBtn.after(keybindBtn);
 }
 _placeNarrowBar();
-// The window crossing 400px changes the bar's look at once: nothing of it eases from one form into the
+// The window crossing 430px changes the bar's look at once: nothing of it eases from one form into the
 // other (reader.css: #topbar.tb-settling, for two frames).
 _narrow.addEventListener('change', () => {
   topbar.classList.add('tb-settling');

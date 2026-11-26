@@ -2,7 +2,7 @@
 // the one page draws, PageMenu): each page
 // names itself and offers the others (a gallery's overview only where there is a gallery, the reader
 // only in the reader); picking one goes there. On a phone it stays where the brand's word gives way;
-// in the reader's classic bar at 400px and under (the narrow bar, A3) it leaves the bar, its other
+// in the reader's classic bar at 430px and under (the narrow bar, A3) it leaves the bar, its other
 // pages rows of the "⋯" list under "Go to", and the bar fits.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -168,7 +168,7 @@ test("on a phone the menu stays in every header; the reader's classic bar fits, 
       const listed = [...document.querySelectorAll('#topbar [data-page-link]')].filter((a) => !a.hidden).map((a) => a.dataset.pageLink);
       return { shown: r.width > 0 && r.right <= innerWidth, fits: bar.scrollWidth <= bar.clientWidth, listed };
     });
-    const narrow = path.startsWith('/reader') && width <= 400;
+    const narrow = path.startsWith('/reader') && width <= 430;
     assert.deepEqual(state, { shown: !narrow, fits: true, listed: path.startsWith('/reader') ? ['overview', 'settings'] : [] }, `${path} at ${width}px`);
   }
 });

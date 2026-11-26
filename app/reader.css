@@ -185,7 +185,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
   #topbar { padding: 0 calc(12px + var(--page-scrollbar-gap)) 0 12px; }
   #topbar :is(.brand-text, .brand-wrap + .brand-sep) { display: none; }
 }
-@media (max-width: 420px) {
+@media (max-width: 430px) {
   #topbar :is(.tb-meta, #pageNav + .brand-sep) { display: none; }
 }
 
@@ -312,7 +312,7 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
 .mode-seg[data-state="double"] .seg-indicator { left: 30px; }
 .mode-seg[data-state="strip"]  .seg-indicator { left: 60px; }
 
-/* ── The narrow bar: 400px wide and under (the owner's design, A3, chosen 2026-11-26) ──
+/* ── The narrow bar: 430px wide and under (the owner's design, A3, chosen 2026-11-26) ──
    One flat band across the whole top, edge to edge, as tall as the bar: Home (the logo), the page
    number as plain text, then at most three buttons and "⋯", each 44px (a finger's, with a mouse too)
    with nothing round it, its icon white, only what is switched on in the accent. The three are the
@@ -323,13 +323,13 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
    by side, Pin header, the keys (with a mouse; a touch screen has none) and the page menu's other
    pages under "Go to" (the menu itself leaves the bar). Reader settings is drawn as sliders here (bar
    and list), so the list holds one gear, the app's Settings. When it does not fit, the page number
-   gives (it ellipsizes), never a button. Wider than 400px the bar is as it was, and nothing of this
+   gives (it ellipsizes), never a button. Wider than 430px the bar is as it was, and nothing of this
    applies. */
 #topbar .tb-narrow-icon, #topbar .tb-go { display: none; }
-/* The window crossing 400px: the bar takes its other form at once (reader.js sets this for two frames). */
+/* The window crossing 430px: the bar takes its other form at once (reader.js sets this for two frames). */
 #topbar.tb-settling, #topbar.tb-settling * { transition: none !important; }
 #topbar .tb-rows { display: contents; }
-@media (max-width: 400px) {
+@media (max-width: 430px) {
   #topbar { gap: 0; padding: 0 calc(8px + var(--page-scrollbar-gap)) 0 8px; }
   #topbar :is(.brand-sep, #pageNav) { display: none; }
   #topbar .brand-wrap { order: -2; justify-content: center; width: 44px; height: 44px; border-radius: 6px; }
@@ -394,7 +394,7 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
   #topbar .tb-go::before { content: attr(aria-label); display: block; padding: 4px 14px 2px; font-size: 11px; color: var(--muted-foreground); }
   #topbar .tb-go > .tb-row[hidden] { display: none; }
 }
-@media (max-width: 400px) and (pointer: coarse) {
+@media (max-width: 430px) and (pointer: coarse) {
   #topbar .tb-rows > #keybindBtn { display: none; }
 }
 
