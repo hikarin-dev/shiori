@@ -1,7 +1,8 @@
 // reader.tsx — the reader as the one page draws it (at /reader?g=…, 1.3's page until 2026-11-26): its
 // frame, and the engine (app/js/reader.js) started in it. The engine and the chrome are the reader's
-// own, as on its page; what its modules ask the one page to draw (the page's right-click menu) is drawn
-// beside the frame (./reader/parts.tsx), through hosts registered for each start.
+// own, as on its page; what its modules ask the one page to draw (the page's right-click menu, page
+// properties, the feedback dialog) is drawn beside the frame (./reader/parts.tsx), through hosts
+// registered for each start.
 //
 // The frame is the markup 1.3's page had in its body (./reader/frame.ts), drawn by React once and never
 // again: the engine owns everything inside it. Each start has a frame of its own: the route is keyed on

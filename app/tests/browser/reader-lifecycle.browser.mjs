@@ -233,7 +233,7 @@ async function use(page, c) {
   const box = await page.evaluate(() => { const r = document.querySelector('.bubble-box').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
   await page.mouse.move(box.x - 3, box.y); await page.mouse.move(box.x, box.y); await sleep(300);
   await key('f');
-  await until(page, () => !!document.querySelector('dialog.feedback-dialog[open]'), null, { what: 'the feedback dialog' });
+  await until(page, () => !!document.querySelector('[data-reader-part="feedback"]'), null, { what: 'the feedback dialog' });
   await key('Escape'); await sleep(100);
   if (c % 2) {
     await key('i');

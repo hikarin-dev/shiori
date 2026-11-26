@@ -5,6 +5,8 @@
 // engine's own view, whatever draws the parts.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
 
 const GALLERY = '1790000000981';
@@ -15,7 +17,7 @@ let server, origin, browser;
 const MENU = '[data-reader-part="page-menu"]';
 const MENU_ITEM = '[data-slot="menu-item"]';
 const PROPERTIES = '[data-reader-part="properties"]';
-const FEEDBACK = 'dialog.feedback-dialog[open], [data-reader-part="feedback"]';
+const FEEDBACK = '[data-reader-part="feedback"]';
 
 before(async () => {
   if (!chromePath()) return;
@@ -106,6 +108,7 @@ async function openFeedback(page, index = 0) {
   await page.mouse.move(b.x - 3, b.y); await page.mouse.move(b.x, b.y); await sleep(250);
   await page.keyboard.press('f');
   await until(page, async () => (await import('/app/js/reader-feedback.js')).feedbackOpen(), null, { what: 'the feedback dialog' });
+  await until(page, (sel) => !!document.querySelector(sel)?.contains(document.activeElement), FEEDBACK, { what: 'the feedback dialog drawn, focus in it' });
 }
 
 test('the page menu opens at the pointer with the page\'s items; Shift+right-click keeps the browser\'s own', { skip: !chromePath() }, async (t) => {
@@ -303,6 +306,24 @@ test('page properties\' box neither moves nor grows after its first frame, the C
   }
 });
 
+// Feedback's box likewise, from the press on a bubble with no draft yet (its code fetched already): the
+// evidence captured and the frozen page's pictures replaced after it shows.
+test('the feedback dialog\'s box neither moves nor grows after its first frame, the CPU six times slower', { skip: !chromePath() }, async (t) => {
+  const page = await reader(t, { study: true });
+  await openFeedback(page, 0);
+  await page.keyboard.press('Escape');
+  await until(page, async () => !(await import('/app/js/reader-feedback.js')).feedbackOpen(), null, { what: 'closed' });
+  const b = await until(page, () => {
+    const el = [...document.querySelectorAll('.bubble-box')].find((e) => e.dataset.feedbackIndex === '1');
+    const r = el?.getBoundingClientRect();
+    return r && { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  }, null, { what: 'the second bubble' });
+  await page.mouse.move(b.x - 3, b.y); await page.mouse.move(b.x, b.y); await sleep(250);
+  const frames = await boxFrames(page, () => page.keyboard.press('f'), FEEDBACK, `${FEEDBACK} [data-feedback="fidelity"]:not(:empty)`);
+  assert.ok(frames.length >= 40, `${frames.length} frames`);
+  assert.deepEqual([...new Set(frames)], [frames[0]], 'the box in every frame as in its first');
+});
+
 test('auto-play waits while page properties or feedback is open, and goes on once it closes', { skip: !chromePath() }, async (t) => {
   const page = await reader(t, { mode: 'strip', study: true });
   await page.keyboard.press('k');
@@ -339,7 +360,7 @@ test('a feedback draft is kept while the reader is open: closed and opened again
   const page = await reader(t, { study: true });
   const box = () => page.evaluate((sel) => {
     const d = document.querySelector(sel);
-    return { note: d.querySelector('textarea').value, ticked: [...d.querySelectorAll('input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"]')].length };
+    return { note: d.querySelector('textarea').value, ticked: d.querySelectorAll('[role="checkbox"][aria-checked="true"]').length };
   }, FEEDBACK);
   await openFeedback(page, 0);
   await page.evaluate((sel) => {
@@ -348,7 +369,7 @@ test('a feedback draft is kept while the reader is open: closed and opened again
     note.focus();
   }, FEEDBACK);
   await page.keyboard.type('the line breaks are off');
-  const tick = await page.evaluate((sel) => { const d = document.querySelector(sel); const c = d.querySelector('input[type="checkbox"], [role="checkbox"]'); const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, FEEDBACK);
+  const tick = await page.evaluate((sel) => { const d = document.querySelector(sel); const c = d.querySelector('[role="checkbox"]'); const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, FEEDBACK);
   await page.mouse.click(tick.x, tick.y);
   assert.deepEqual(await box(), { note: 'the line breaks are off', ticked: 1 });
   await page.keyboard.press('Escape');
@@ -359,4 +380,80 @@ test('a feedback draft is kept while the reader is open: closed and opened again
   await until(page, async () => !(await import('/app/js/reader-feedback.js')).feedbackOpen(), null, { what: 'closed' });
   await openFeedback(page, 1);
   assert.deepEqual(await box(), { note: '', ticked: 0 }, 'another bubble: a draft of its own');
+});
+
+// A send and an export, against a stand-in translation server of the test's own (127.0.0.1, a free
+// port): each outcome's words in the status line, a change to the form clearing it. The stand-in reads
+// the report's id from the archive (its files are stored, not compressed) as a real one answers it.
+test('feedback: sending and exporting a report, each outcome said in its status line', { skip: !chromePath() }, async (t) => {
+  const answers = [];
+  const ZIP = Buffer.from('a report kept by the server');
+  const zipHash = createHash('sha256').update(ZIP).digest('hex');
+  const stand = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const body = Buffer.concat(chunks).toString('latin1');
+    const head = { 'Access-Control-Allow-Origin': '*' };
+    if (req.url === '/feedback/save') {
+      const how = answers.shift() || 'ok';
+      if (how === 'fail') { res.writeHead(500, head); res.end(); return; }
+      const id = body.match(/"report_id": "([a-f0-9]{32})"/)?.[1];
+      res.writeHead(200, { ...head, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(how === 'bad' ? { report_id: 'nope' } : { report_id: id, archive_sha256: zipHash, storage: 'translation-server' }));
+    } else if (req.url === '/feedback/export') {
+      res.writeHead(200, { ...head, 'Content-Type': 'application/zip' });
+      res.end(ZIP);
+    } else { res.writeHead(404, head); res.end(); }
+  });
+  await new Promise((r) => stand.listen(0, '127.0.0.1', r));
+  const serverUrl = `http://127.0.0.1:${stand.address().port}`;
+  t.after(() => stand.close());
+  const page = await openPage(browser, origin, { allow: [serverUrl] });
+  t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
+  await page.evaluateOnNewDocument((serverUrl) => {
+    localStorage.setItem('shiori-reader-nav', 'top');
+    localStorage.setItem('shiori-reader-pin', '1');
+    localStorage.setItem('shiori:readerMode', JSON.stringify('single'));
+    localStorage.setItem('shiori:readerView', JSON.stringify('study'));
+    localStorage.setItem('shiori:readerThumbsOpen', 'false');
+    localStorage.setItem('shiori:readerFitMode', JSON.stringify('height'));
+    localStorage.setItem('shiori:translateSettings', JSON.stringify({ serverUrl }));
+  }, serverUrl);
+  await page.goto(`${origin}/reader?g=${GALLERY}&page=2`, { waitUntil: 'load' });
+  await until(page, () => document.getElementById('mainImg')?.naturalWidth > 0, null, { what: 'a page drawn' });
+  await openFeedback(page, 0);
+  const words = (key, args) => page.evaluate(async (key, args) => (await import('/app/js/i18n.js')).t(key, args), key, args);
+  const buttons = (keys) => page.evaluate(async (sel, keys) => {
+    const { t } = await import('/app/js/i18n.js');
+    const all = [...document.querySelector(sel).querySelectorAll('button')];
+    return keys.map((key) => !all.find((b) => b.textContent === t(key))?.disabled);
+  }, FEEDBACK, keys);
+  const press = (key) => page.evaluate(async (sel, key) => {
+    const { t } = await import('/app/js/i18n.js');
+    [...document.querySelector(sel).querySelectorAll('button')].find((b) => b.textContent === t(key)).click();
+  }, FEEDBACK, key);
+  const status = () => page.$eval(`${FEEDBACK} [role="status"]`, (el) => el.textContent);
+  await until(page, (sel) => document.querySelector(`${sel} [data-feedback="fidelity"]`)?.textContent, FEEDBACK, { what: 'the evidence captured' });
+  assert.equal(await page.$eval(`${FEEDBACK} [data-feedback="destination"]`, (el) => el.textContent), await words('feedback.destination'));
+  assert.deepEqual(await buttons(['feedback.save', 'feedback.export']), [false, false], 'nothing to send before an issue is ticked');
+  const tick = await page.$eval(`${FEEDBACK} [role="checkbox"]`, (c) => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.click(tick.x, tick.y);
+  assert.deepEqual(await buttons(['feedback.save', 'feedback.export']), [true, true]);
+  // A server that fails, one whose receipt is not the report's, one that keeps it.
+  const says = (w, what) => until(page, ([sel, w]) => document.querySelector(`${sel} [role="status"]`).textContent === w, [FEEDBACK, w], { what });
+  answers.push('fail', 'bad');
+  await press('feedback.save');
+  await says(await words('feedback.failed', { error: 'HTTP 500' }), 'a failed send');
+  await press('feedback.save');
+  await says(await words('feedback.failed', { error: await words('feedback.bad_ack') }), 'a receipt not the report\'s');
+  await press('feedback.save');
+  await says(await words('feedback.saved'), 'a kept report');
+  // Exported with a receipt: the server's copy; after a change to the form, the cached evidence.
+  await press('feedback.export');
+  await says(await words('feedback.exported'), 'the server\'s copy exported');
+  await page.focus(`${FEEDBACK} textarea`);
+  await page.keyboard.type('x');
+  assert.equal(await status(), '', 'a change to the form clears the outcome');
+  await press('feedback.export');
+  await says(await words('feedback.exported_cached'), 'the cached evidence exported');
 });

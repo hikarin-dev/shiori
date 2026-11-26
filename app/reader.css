@@ -12,9 +12,9 @@
    the text around it and has no ground, frame or rounding, src/styles/document.css). Each property
    those defaults set goes back to the browser's own (revert: the same on every system), ligatures off
    as 1.3's base.css had them. Zero weight and first: every rule of the reader's outweighs it. Its roots
-   are the reader's parts that hold controls: the frame's, and the dialogs and the menu its scripts add
-   to <body>. */
-:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal, .feedback-dialog) :where(button, input, select, optgroup, textarea),
+   are the reader's parts that hold controls, all in its frame. (The page's menu, page properties and the
+   feedback dialog are the one page's components since 8e, drawn beside the frame: src/routes/reader/.) */
+:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal) :where(button, input, select, optgroup, textarea),
 :where(#scrollTopBtn) {
   font: revert; font-variant-ligatures: none; letter-spacing: revert;
   color: revert; background-color: revert; border: revert; border-radius: revert; opacity: revert;
@@ -100,8 +100,8 @@
   stroke-linejoin: round;
 }
 
-/* ── Button in the reader's dialogs: neutral, or .primary / .danger (1.3's base.css's) ── */
-:where(#readerSettingsModal, .feedback-dialog) .btn {
+/* ── Button in the reader settings: neutral, or .primary / .danger (1.3's base.css's) ── */
+:where(#readerSettingsModal) .btn {
   flex: none;
   padding: 7px 14px;
   background: transparent;
@@ -114,15 +114,15 @@
   line-height: 1.55;
   cursor: pointer;
 }
-:where(#readerSettingsModal, .feedback-dialog) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
-:where(#readerSettingsModal, .feedback-dialog) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-:where(#readerSettingsModal, .feedback-dialog) .btn.danger { background: var(--destructive-fill); border-color: transparent; color: var(--destructive); }
-:where(#readerSettingsModal, .feedback-dialog) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
-:where(#readerSettingsModal, .feedback-dialog) .btn.danger:hover:not(:disabled) { background: var(--destructive-fill-hover); border-color: transparent; }
-:where(#readerSettingsModal, .feedback-dialog) .btn:disabled { opacity: .6; cursor: default; }
+:where(#readerSettingsModal) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
+:where(#readerSettingsModal) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+:where(#readerSettingsModal) .btn.danger { background: var(--destructive-fill); border-color: transparent; color: var(--destructive); }
+:where(#readerSettingsModal) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+:where(#readerSettingsModal) .btn.danger:hover:not(:disabled) { background: var(--destructive-fill-hover); border-color: transparent; }
+:where(#readerSettingsModal) .btn:disabled { opacity: .6; cursor: default; }
 
 /* ── Icon button in a dialog's corner: the close X, or a link beside it (1.3's base.css's) ── */
-:where(#readerSettingsModal, .feedback-dialog) .icon-btn {
+:where(#readerSettingsModal) .icon-btn {
   flex: none;
   width: 28px;
   height: 28px;
@@ -136,9 +136,9 @@
   cursor: pointer;
   text-decoration: none;
 }
-:where(#readerSettingsModal, .feedback-dialog) .icon-btn:hover { background: var(--secondary); color: var(--foreground); }
-:where(#readerSettingsModal, .feedback-dialog) .icon-btn[hidden] { display: none; }
-:where(#readerSettingsModal, .feedback-dialog) .icon-btn > svg {
+:where(#readerSettingsModal) .icon-btn:hover { background: var(--secondary); color: var(--foreground); }
+:where(#readerSettingsModal) .icon-btn[hidden] { display: none; }
+:where(#readerSettingsModal) .icon-btn > svg {
   width: 15px;
   height: 15px;
   fill: none;
@@ -149,7 +149,7 @@
 }
 
 /* ── Switch: a hidden checkbox and its track (the reader's settings) ── */
-:where(#readerSettingsModal, .feedback-dialog) .switch-control {
+:where(#readerSettingsModal) .switch-control {
   position: relative;
   width: 36px;
   height: 20px;
@@ -158,7 +158,7 @@
   cursor: pointer;
 }
 
-:where(#readerSettingsModal, .feedback-dialog) .switch-control input {
+:where(#readerSettingsModal) .switch-control input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -166,7 +166,7 @@
   pointer-events: none;
 }
 
-:where(#readerSettingsModal, .feedback-dialog) .switch-track {
+:where(#readerSettingsModal) .switch-track {
   position: absolute;
   inset: 0;
   background: #303038;
@@ -176,7 +176,7 @@
   transition: background-color .15s ease, border-color .15s ease;
 }
 
-:where(#readerSettingsModal, .feedback-dialog) .switch-track::after {
+:where(#readerSettingsModal) .switch-track::after {
   content: '';
   position: absolute;
   top: 2px;
@@ -189,18 +189,18 @@
   transition: background-color .15s ease, transform .15s ease;
 }
 
-:where(#readerSettingsModal, .feedback-dialog) .switch-control input:checked + .switch-track {
+:where(#readerSettingsModal) .switch-control input:checked + .switch-track {
   background: var(--primary);
   border-color: var(--primary);
 }
 
-:where(#readerSettingsModal, .feedback-dialog) .switch-control input:checked + .switch-track::after {
+:where(#readerSettingsModal) .switch-control input:checked + .switch-track::after {
   background: #fff;
   transform: translateX(16px);
 }
 
 /* The checkbox itself is hidden, so its track shows the browser's own focus ring. */
-:where(#readerSettingsModal, .feedback-dialog) .switch-control input:focus-visible + .switch-track {
+:where(#readerSettingsModal) .switch-control input:focus-visible + .switch-track {
   outline: auto 1px -webkit-focus-ring-color;
 }
 
@@ -909,24 +909,6 @@ body.thumb-dragging * {
 #bottombar[data-position="right"] .scrub-view { left: 0; right: 0; }
 #bottombar[data-position="left"] .scrub-view + .scrub-view,
 #bottombar[data-position="right"] .scrub-view + .scrub-view { border-left: 0; border-top: 1px solid var(--reader-background); }
-
-/* ── Feedback dialog ── */
-.feedback-dialog { color: var(--foreground); background: var(--popover); border: 1px solid var(--input); border-radius: 12px; margin: auto; padding: 20px; width: min(960px, 94vw); max-height: 90vh; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; font-size: 13px; }
-.feedback-dialog::backdrop { background: var(--backdrop); }
-.feedback-header, .feedback-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.feedback-header h2 { font-size: 15px; margin: 0; }
-.feedback-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr); gap: 24px; margin-top: 16px; }
-.feedback-preview { width: 100% !important; max-width: 100% !important; transform: none !important; margin: 0 !important; pointer-events: none; }
-.feedback-preview > img { display: block !important; width: 100% !important; height: auto !important; max-width: none !important; max-height: none !important; margin: 0 !important; }
-.feedback-region { position: absolute; outline: 1px dashed #558bff; color: #fff; font: bold 12px sans-serif; text-shadow: 0 1px 3px #000; z-index: 10; }
-.feedback-region.selected { outline: 3px solid var(--primary); background: rgba(237, 39, 84, .12); }
-.feedback-caption, .feedback-fidelity, .feedback-destination, .feedback-status { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.feedback-form fieldset { border: 1px solid var(--border); border-radius: 6px; margin: 12px 0; padding: 10px; }
-.feedback-check { display: flex; align-items: baseline; gap: 8px; margin: 6px 0; font-size: 13px; }
-.feedback-note { display: block; font-size: 13px; }
-.feedback-note textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; resize: vertical; color: inherit; background: var(--reader-background); border: 1px solid var(--input); border-radius: 6px; font: inherit; }
-.feedback-related { max-height: 180px; overflow: auto; }
-@media (max-width: 650px) { .feedback-content { grid-template-columns: 1fr; } .feedback-preview-column { max-width: 330px; margin: auto; } }
 
 /* ── Keybind modal ── */
 /* The shortcuts and reader-settings modals hold the pages still behind them without hiding the

@@ -1,27 +1,34 @@
+// reader-feedback.js — a report on how one bubble was typeset (F over a bubble in study or translate
+// view): the page as it showed, the bubble and its neighbours, what needs improvement and a note, sent to
+// the translation server or exported as a zip. The evidence, its zip and its request are feedback.js's;
+// this keeps each bubble's draft for the reader's session (closed and opened again, it is as it was
+// left) and what sending or exporting one does. The one page draws it: the reader's route registers a
+// host here (setFeedbackHost, src/routes/reader/feedback-store.ts) before it starts the reader, and the
+// host shows a draft and redraws it as it changes (src/routes/reader/feedback.tsx).
 import * as api from './api.js';
 import { kv } from './platform.js';
 import { t } from './i18n.js';
 import { ISSUES, captureFeedback, feedbackZip, feedbackDestination, feedbackRequest, sha256 } from './feedback.js';
 
-const drafts = new Map();
-const releases = new Map();   // a draft's dialog → what frees its preview (its object URLs, its observer)
-export const feedbackOpen = () => !!document.querySelector('.feedback-dialog[open]');
-// The reader's stop: every draft, open or kept closed for the session, goes with what it holds.
-export function closeFeedback() {
-  for (const dialog of drafts.values()) {
-    if (dialog.open) dialog.close();
-    dialog.remove();
-    releases.get(dialog)?.();
-  }
-  drafts.clear();
-  releases.clear();
+let _host = null;
+export function setFeedbackHost(host) {
+  _host = host;
+  return () => { if (_host === host) _host = null; };
 }
-const node = (tag, cls, text) => {
-  const el = document.createElement(tag);
-  if (cls) el.className = cls;
-  if (text !== undefined) el.textContent = text;
-  return el;
+const _drawer = () => {
+  if (!_host) throw new Error('reader-feedback.js: no feedback host has registered (setFeedbackHost)');
+  return _host;
 };
+
+const drafts = new Map();   // page url | job | bubble | surface → its draft, for the reader's session
+export const feedbackOpen = () => !!_host?.isOpen();
+// The reader's stop: every draft, shown or kept, goes with what it holds.
+export function closeFeedback() {
+  _host?.close();
+  for (const draft of drafts.values()) draft.release();
+  drafts.clear();
+}
+
 const rect = r => ({ x: r.x, y: r.y, w: r.width, h: r.height });
 
 function displayEvidence(wrap, context) {
@@ -44,162 +51,131 @@ function displayEvidence(wrap, context) {
   };
 }
 
-export function openFeedback({ pageUrl, page, study, index, wrap, context }) {
-  const surface = context.surface || 'translation';
-  const key = `${pageUrl}|${study.job || 'legacy'}|${index}|${surface}`;
-  if (drafts.has(key)) { drafts.get(key).showModal(); return; }
-  const display = displayEvidence(wrap, context);
-  const dialog = node('dialog', 'feedback-dialog');
-  const titleId = 'feedback-' + crypto.randomUUID();
-  dialog.setAttribute('aria-labelledby', titleId);
-  const header = node('div', 'feedback-header');
-  const title = node('h2', '', t('feedback.title')); title.id = titleId;
-  const close = node('button', 'btn', t('common.close')); close.type = 'button';
-  header.append(title, close);
-  const content = node('div', 'feedback-content');
-  const previewColumn = node('div', 'feedback-preview-column');
+// The page as it showed when F was pressed, frozen: a copy of its wrap without ids or the bubbles' own
+// controls. Once the evidence is captured its pictures are the capture's own, so the reader letting go
+// of its pictures cannot empty it.
+function _frozenPage(wrap) {
   const preview = wrap.cloneNode(true);
-  preview.className = 'page-wrap feedback-preview';
+  preview.className = 'page-wrap';
   preview.removeAttribute('style');
   preview.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
   preview.querySelectorAll('.bubble-nav, .bubble-box').forEach(el => el.remove());
   preview.setAttribute('aria-hidden', 'true');
-  previewColumn.append(node('p', 'feedback-caption', t('feedback.preview')), preview);
-  const form = node('form', 'feedback-form');
-  const destinationText = node('p', 'feedback-destination', t('feedback.loading'));
-  const subjectText = node('p', 'feedback-subject', t('feedback.subject', { subject: t('feedback.surface_' + surface) }));
-  const fidelity = node('p', 'feedback-fidelity');
-  const issues = node('fieldset'); issues.append(node('legend', '', t('feedback.issues')));
-  for (const value of ISSUES) {
-    const label = node('label', 'feedback-check'), input = node('input');
-    input.type = 'checkbox'; input.name = 'issue'; input.value = value;
-    label.append(input, document.createTextNode(t(`feedback.${value}`))); issues.append(label);
-  }
-  const noteLabel = node('label', 'feedback-note', t('feedback.note'));
-  const note = node('textarea'); note.name = 'note'; note.rows = 5; note.maxLength = 10000;
-  noteLabel.append(note);
-  const related = node('fieldset', 'feedback-related'); related.append(node('legend', '', t('feedback.related')));
-  const highlights = [];
-  study.bubbles.forEach((b, i) => {
-    const r = surface === 'translation' ? (b.tbox || b.rbox || b.region || b.box) : b.box;
-    if (r) {
-      const mark = node('div', 'feedback-region');
-      Object.assign(mark.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` });
-      mark.classList.toggle('selected', i === index);
-      mark.textContent = String(i + 1); preview.append(mark); highlights[i] = mark;
-    }
-    if (i === index) return;
-    const label = node('label', 'feedback-check'), input = node('input');
-    input.type = 'checkbox'; input.name = 'related'; input.value = String(i);
-    input.addEventListener('change', () => highlights[i]?.classList.toggle('selected', input.checked));
-    label.append(input, document.createTextNode(`${i + 1}. ${(surface === 'translation' ? b.tr || b.src || '' : b.src || '').slice(0, 100)}`)); related.append(label);
-  });
-  const status = node('p', 'feedback-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-  const actions = node('div', 'feedback-actions');
-  const save = node('button', 'btn primary', t('feedback.save')); save.type = 'submit'; save.disabled = true;
-  const exp = node('button', 'btn', t('feedback.export')); exp.type = 'button'; exp.disabled = true;
-  actions.append(save, exp);
-  form.append(destinationText, subjectText, fidelity, issues, noteLabel, related, status, actions);
-  content.append(previewColumn, form); dialog.append(header, content); document.body.append(dialog);
-  drafts.set(key, dialog);
-  dialog.showModal();
-  close.onclick = () => dialog.close();
-  // The ::backdrop belongs to no scroller, so a wheel or swipe over it would scroll the pages
-  // behind; scrolls over the dialog itself stay in it (overscroll-behavior: contain).
-  const holdPage = (e) => {
-    const p = e.touches ? e.touches[0] : e;
-    const r = dialog.getBoundingClientRect();
-    if (p.clientX < r.left || p.clientX > r.right || p.clientY < r.top || p.clientY > r.bottom) e.preventDefault();
+  return preview;
+}
+
+const MISSING = (field) => field === 'original' ? 'missing_original' : field === 'selected_ocr' ? 'surface_ocr'
+  : field === 'translated' || field === 'selected_translation' ? 'missing_translation'
+  : field === 'study_background' ? 'missing_background' : field === 'original_region_ids' ? 'missing_ids' : 'missing_pipeline';
+
+function _draft({ key, page, study, index, wrap, context, surface }) {
+  const display = displayEvidence(wrap, context);
+  const urls = [];
+  let capture = null, destination = null, receipt = null, submitted = '';
+  const draft = {
+    key, index, surface,
+    page: _frozenPage(wrap), pageWidth: context.pageWidth || wrap.clientWidth,
+    aspect: display.pageRect.w && display.pageRect.h ? `${display.pageRect.w} / ${display.pageRect.h}` : undefined,   // its shape as it showed
+    // Each bubble's box on the page as a share of it (the one reported, its neighbours).
+    regions: study.bubbles.map((b) => {
+      const r = surface === 'translation' ? (b.tbox || b.rbox || b.region || b.box) : b.box;
+      return r ? { x: r.x, y: r.y, w: r.w, h: r.h } : null;
+    }),
+    related: study.bubbles.map((b, i) => (i === index ? null : { index: i, text: `${i + 1}. ${(surface === 'translation' ? b.tr || b.src || '' : b.src || '').slice(0, 100)}` })).filter(Boolean),
+    issues: ISSUES, chosen: new Set(), note: '', ticked: new Set(),
+    destination: false, fidelity: null, missing: [], status: '', busy: false,
+    canSave: () => !draft.busy && !!capture && !!destination && draft.chosen.size > 0,
+    canExport: () => !draft.busy && !!capture && draft.chosen.size > 0,
+    // A change to the form: what was sent is no longer what it says.
+    edit(change) { change(); receipt = null; draft.status = ''; _changed(); },
+    setIssue(value, on) { draft.edit(() => { on ? draft.chosen.add(value) : draft.chosen.delete(value); }); },
+    setNote(text) { draft.edit(() => { draft.note = text; }); },
+    setRelated(i, on) { draft.edit(() => { on ? draft.ticked.add(i) : draft.ticked.delete(i); }); },
+    async send() {
+      if (!draft.canSave()) return;
+      _manifest(); draft.busy = true; draft.status = t('feedback.saving'); _changed();
+      try {
+        const result = await feedbackRequest(destination, '/feedback/save', { archive: await feedbackZip(capture) });
+        if (result.report_id !== capture.manifest.report_id || !/^[a-f0-9]{64}$/.test(result.archive_sha256)
+            || result.storage !== 'translation-server') throw new Error(t('feedback.bad_ack'));
+        receipt = result;
+        draft.status = t('feedback.saved');
+      } catch (err) { draft.status = t('feedback.failed', { error: err.message }); }
+      finally { draft.busy = false; _changed(); }
+    },
+    async export() {
+      if (!draft.canExport()) return;
+      _manifest(); draft.busy = true; _changed();
+      try {
+        if (receipt) {
+          const blob = await feedbackRequest(destination, '/feedback/export', {
+            report_id: receipt.report_id, archive_sha256: receipt.archive_sha256,
+          }, true);
+          if (await sha256(blob) !== receipt.archive_sha256) throw new Error(t('feedback.bad_ack'));
+          _download(blob); draft.status = t('feedback.exported');
+        } else {
+          _download(await feedbackZip(capture));
+          draft.status = t('feedback.exported_cached');
+        }
+      } catch {
+        // Offline export keeps the note and all locally cached evidence; fidelity states the gap.
+        _download(await feedbackZip(capture)); draft.status = t('feedback.exported_cached');
+      } finally { draft.busy = false; _changed(); }
+    },
+    release() {
+      window.removeEventListener('pagehide', draft.release);
+      urls.splice(0).forEach(u => URL.revokeObjectURL(u));
+    },
   };
-  dialog.addEventListener('wheel', holdPage, { passive: false });
-  dialog.addEventListener('touchmove', holdPage, { passive: false });
-  // Keep the frozen preview scaled to its own width, independent of the live reader's zoom.
-  const observer = new ResizeObserver(() => preview.querySelectorAll('.bubble-layer').forEach(layer =>
-    layer.style.setProperty('--pgscale', String(preview.clientWidth / (context.pageWidth || wrap.clientWidth)))));
-  observer.observe(preview);
-  releases.set(dialog, () => observer.disconnect());
-  let capture, destination, receipt, busy = false, submitted = '';
-  const chosen = () => [...issues.querySelectorAll('input:checked')].map(el => el.value);
-  const updateButtons = () => {
-    save.disabled = busy || !capture || !destination || !chosen().length;
-    exp.disabled = busy || !capture || !chosen().length;
-    issues.disabled = related.disabled = note.disabled = busy;
-  };
-  form.addEventListener('input', () => { receipt = null; status.textContent = ''; updateButtons(); });
-  function updateManifest() {
-    const values = { issues: chosen(), note: note.value, related: [...related.querySelectorAll('input:checked')].map(el => capture.manifest.page.bubbles[Number(el.value)].id) };
+  function _manifest() {
+    const values = { issues: ISSUES.filter(v => draft.chosen.has(v)), note: draft.note,
+      related: [...draft.ticked].sort((a, b) => a - b).map(i => capture.manifest.page.bubbles[i].id) };
     const signature = JSON.stringify(values);
     if (submitted && submitted !== signature) capture.manifest.report_id = crypto.randomUUID().replaceAll('-', '');
     submitted = signature;
     Object.assign(capture.manifest, { issues: values.issues, note: values.note });
     capture.manifest.selection.related = values.related;
   }
-  function download(blob) {
-    const url = URL.createObjectURL(blob), a = node('a');
+  function _download(blob) {
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url; a.download = `feedback-${capture.manifest.report_id}.zip`; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
-  form.addEventListener('submit', async e => {
-    e.preventDefault(); if (save.disabled) return;
-    updateManifest(); busy = true; updateButtons(); status.textContent = t('feedback.saving');
-    try {
-      const result = await feedbackRequest(destination, '/feedback/save', { archive: await feedbackZip(capture) });
-      if (result.report_id !== capture.manifest.report_id || !/^[a-f0-9]{64}$/.test(result.archive_sha256)
-          || result.storage !== 'translation-server') throw new Error(t('feedback.bad_ack'));
-      receipt = result;
-      status.textContent = t('feedback.saved');
-    } catch (err) { status.textContent = t('feedback.failed', { error: err.message }); }
-    finally { busy = false; updateButtons(); }
-  });
-  exp.addEventListener('click', async () => {
-    if (exp.disabled) return;
-    updateManifest(); busy = true; updateButtons();
-    try {
-      if (receipt) {
-        const blob = await feedbackRequest(destination, '/feedback/export', {
-          report_id: receipt.report_id, archive_sha256: receipt.archive_sha256,
-        }, true);
-        if (await sha256(blob) !== receipt.archive_sha256) throw new Error(t('feedback.bad_ack'));
-        download(blob); status.textContent = t('feedback.exported');
-      } else {
-        download(await feedbackZip(capture));
-        status.textContent = t('feedback.exported_cached');
-      }
-    } catch {
-      // Offline export keeps the note and all locally cached evidence; fidelity states the gap.
-      download(await feedbackZip(capture)); status.textContent = t('feedback.exported_cached');
-    } finally { busy = false; updateButtons(); }
-  });
+  function _changed() { if (drafts.get(key) === draft) _host?.changed(draft); }
+  window.addEventListener('pagehide', draft.release, { once: true });
   (async () => {
     try {
       capture = await captureFeedback(await api.pages.get(page.gid, page.pageNum), study, display, index);
       const settings = (await kv.get('translateSettings')).translateSettings || {};
       destination = feedbackDestination(settings);
-      destinationText.textContent = t('feedback.destination');
-      fidelity.textContent = capture.manifest.missing.length ? t('feedback.incomplete') : t('feedback.complete');
-      if (capture.manifest.missing.length) {
-        const labels = new Set(capture.manifest.missing.map(field =>
-          field === 'original' ? 'missing_original' : field === 'selected_ocr' ? 'surface_ocr' : field === 'translated' || field === 'selected_translation' ? 'missing_translation'
-            : field === 'study_background' ? 'missing_background' : field === 'original_region_ids' ? 'missing_ids' : 'missing_pipeline'));
-        const list = node('ul');
-        for (const label of labels) list.append(node('li', '', t('feedback.' + label)));
-        fidelity.append(list);
-      }
-      if (drafts.get(key) !== dialog) return;   // closed for good meanwhile (closeFeedback)
-      // Give the preview independent URLs, so reader cache eviction cannot remove its images.
-      const urls = [];
+      if (drafts.get(key) !== draft) return;   // gone meanwhile (closeFeedback)
+      draft.destination = true;
+      draft.fidelity = capture.manifest.missing.length ? 'incomplete' : 'complete';
+      draft.missing = [...new Set(capture.manifest.missing.map(MISSING))];
+      // The frozen page's pictures, the capture's own.
       const blobs = [capture.manifest.page.original, capture.manifest.page.study_background];
-      for (const img of preview.querySelectorAll('img')) {
+      for (const img of draft.page.querySelectorAll('img')) {
         const owner = img.dataset.feedbackIndex;
         const ref = owner !== undefined ? capture.manifest.page.bubbles[Number(owner)]?.text
           : img.classList.contains('study-layer-img') ? blobs[1] : blobs[0];
         if (ref) { img.src = URL.createObjectURL(capture.assets.get(ref.path)); urls.push(img.src); }
       }
-      // Retain closed drafts for this reader session. Release when the tab leaves.
-      const release = () => { urls.forEach(u => URL.revokeObjectURL(u)); observer.disconnect(); };
-      window.addEventListener('pagehide', release, { once: true });
-      releases.set(dialog, () => { window.removeEventListener('pagehide', release); release(); });
-    } catch (err) { status.textContent = t(err.message.startsWith('feedback.') ? err.message : 'feedback.missing_page'); }
-    updateButtons();
+    } catch (err) {
+      if (drafts.get(key) !== draft) return;
+      draft.status = t(err.message.startsWith('feedback.') ? err.message : 'feedback.missing_page');
+    }
+    _changed();
   })();
+  return draft;
+}
+
+export function openFeedback({ pageUrl, page, study, index, wrap, context }) {
+  const surface = context.surface || 'translation';
+  const key = `${pageUrl}|${study.job || 'legacy'}|${index}|${surface}`;
+  let draft = drafts.get(key);
+  if (!draft) {
+    draft = _draft({ key, page, study, index, wrap, context, surface });
+    drafts.set(key, draft);
+  }
+  _drawer().show(draft);
 }

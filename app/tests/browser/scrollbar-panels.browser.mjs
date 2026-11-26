@@ -106,10 +106,9 @@ test('other modal bodies, lists and nested details share native styling and acce
     // went with their pages (library.css, overview.css); the one page draws them as its Listbox.)
     const examples = [
       ['Reader settings', '<div id="readerSettingsBox"><div class="rs-panel active"></div></div>', '.rs-panel'],   // the tab shown scrolls
-      ['Feedback dialog', '<dialog class="feedback-dialog" open></dialog>', '.feedback-dialog'],
-      ['Related feedback', '<fieldset class="feedback-related"></fieldset>', '.feedback-related'],
-      // (Page properties' body and lists left 2026-11-26 with its drawing: the app's Dialog and its own
-      // boxes, held by the test after this one on the dialog itself.)
+      // (The feedback dialog and its related bubbles' box, and page properties' body and lists, left
+      // 2026-11-26 with their drawing: the app's Dialog (its contents' box held by ui-dialog) and their own
+      // boxes, page properties' held by the test after this one on the dialog itself.)
     ];
     for (const [index, [name, html, selector]] of examples.entries()) {
       const owner = document.createElement('div');
