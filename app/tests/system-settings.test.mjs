@@ -83,13 +83,13 @@ const UPDATES = [
   { status: 'unavailable' }, { status: 'something new' },
 ];
 
-test('the port\'s choices, as 1.3\'s page offered them, in every language', () => {
+test('the port\'s choices, as 1.3\'s page offered them, in every language', async () => {
   const o = oracle();
   for (const lang of SUPPORTED) {
-    setLang(lang);
+    await setLang(lang);
     for (const state of PORTS) assert.equal(drawn(state), o.ports(state), `${lang} ${JSON.stringify(state)}`);
   }
-  setLang('en');
+  await setLang('en');
   assert.deepEqual(portChoices(PORTS[1]).map((c) => c.value), [0, 47153, 47154, 47155]);
 });
 
@@ -98,15 +98,15 @@ test('an add-on\'s name, as 1.3\'s page wrote it', () => {
   for (const ext of ADD_ONS) assert.equal(esc(addOnName(ext)), o.extName(ext), JSON.stringify(ext));
 });
 
-test('the update\'s line for each state: its words, Restart to update, Check off and followed, as 1.3\'s page drew them', () => {
+test('the update\'s line for each state: its words, Restart to update, Check off and followed, as 1.3\'s page drew them', async () => {
   const o = oracle();
   for (const lang of SUPPORTED) {
-    setLang(lang);
+    await setLang(lang);
     for (const update of UPDATES) {
       const old = o.update({ update });
       const { text, ready, busy } = updateView(update);
       assert.deepEqual({ text, ready, busy, followed: busy ? [UPDATE_FOLLOW_MS] : [] }, old, `${lang} ${JSON.stringify(update)}`);
     }
   }
-  setLang('en');
+  await setLang('en');
 });

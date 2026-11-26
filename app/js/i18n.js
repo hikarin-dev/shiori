@@ -4,37 +4,33 @@
 // boot (no flash, no async round-trip) and shared across same-origin tabs. Pages mark static
 // text with data-i18n* attributes; dynamic strings call t(key, vars). applyTranslations() walks
 // a root and fills everything in. A 'storage' listener keeps other open tabs in sync.
+//
+// Each language's words are a module of their own (locales/<code>.js). A page holds English (the
+// fallback) and the language it shows: this module waits for that language's words before it is done,
+// so whatever imports it runs with them there, and t() is never asked before they have come. Another
+// language's words are fetched when it is chosen (setLang), here or in another tab, and the page
+// changes to it once they have come.
 
-import { LOCALES } from './locales.js';
+import en from './locales/en.js';
+import { SUPPORTED, LANG_NAMES, pickLanguage } from './languages.js';
 
-export const SUPPORTED = ['en', 'ja', 'de', 'fr', 'zh-CN', 'zh-TW', 'ko', 'es', 'pt-BR', 'ru', 'vi', 'id'];
-export const LANG_NAMES = {
-  en: 'English', ja: '日本語', de: 'Deutsch', fr: 'Français', 'zh-CN': '简体中文',
-  'zh-TW': '繁體中文', ko: '한국어', es: 'Español', 'pt-BR': 'Português (BR)',
-  ru: 'Русский', vi: 'Tiếng Việt', id: 'Bahasa Indonesia',
-};
+export { SUPPORTED, LANG_NAMES };
 
-function _detect() {
-  const navs = navigator.languages || [navigator.language || 'en'];
-  for (const raw of navs) {
-    const l = String(raw);
-    if (SUPPORTED.includes(l)) return l;
-    if (/^zh\b/i.test(l)) return 'zh-CN';
-    const base = l.slice(0, 2).toLowerCase();
-    if (SUPPORTED.includes(base)) return base;
-  }
-  return 'en';
-}
+// The words of each language this page has loaded.
+const _words = { en };
+const _load = (lang) => (_words[lang] ? Promise.resolve(_words[lang])
+  : import(/* @vite-ignore */ `./locales/${lang}.js`).then((m) => (_words[lang] = m.default)));
 
-let _lang = localStorage.getItem('shiori-lang') || _detect();
-if (!SUPPORTED.includes(_lang)) _lang = 'en';
+let _lang = pickLanguage(localStorage.getItem('shiori-lang'), navigator.languages || [navigator.language || 'en']);
+// (Words that can't be had, which the page's own files are, leave it in English.)
+if (_lang !== 'en') { try { await _load(_lang); } catch { _lang = 'en'; } }
 
 export function getLang() { return _lang; }
 
 // Translate a key. Falls back to English, then to the raw key. {placeholders} are filled from vars.
 export function t(key, vars) {
-  const dict = LOCALES[_lang] || LOCALES.en;
-  let s = (dict && dict[key] != null) ? dict[key] : (LOCALES.en[key] != null ? LOCALES.en[key] : key);
+  const dict = _words[_lang] || en;
+  let s = (dict && dict[key] != null) ? dict[key] : (en[key] != null ? en[key] : key);
   if (vars) for (const k in vars) s = s.split('{' + k + '}').join(vars[k]);
   return s;
 }
@@ -53,19 +49,26 @@ export function applyTranslations(root = document) {
   document.documentElement.lang = _lang;
 }
 
-export function setLang(lang) {
-  if (!SUPPORTED.includes(lang)) lang = 'en';
+// The page changes to `lang` once its words are here (at once when they are already), the last asked
+// for winning. Resolves when it has; rejects, the language left as it was, when they can't be had.
+let _asked = 0;
+async function _change(lang, keep) {
+  const asked = ++_asked;
+  await _load(lang);
+  if (asked !== _asked) return;
   _lang = lang;
-  localStorage.setItem('shiori-lang', lang);
+  if (keep) localStorage.setItem('shiori-lang', lang);
   applyTranslations(document);
   window.dispatchEvent(new CustomEvent('shiori-lang-change', { detail: lang }));
+}
+
+export function setLang(lang) {
+  return _change(SUPPORTED.includes(lang) ? lang : 'en', true);
 }
 
 // Keep other open tabs in sync when the language is changed elsewhere.
 window.addEventListener('storage', (e) => {
   if (e.key === 'shiori-lang' && e.newValue && e.newValue !== _lang) {
-    _lang = SUPPORTED.includes(e.newValue) ? e.newValue : 'en';
-    applyTranslations(document);
-    window.dispatchEvent(new CustomEvent('shiori-lang-change', { detail: _lang }));
+    _change(SUPPORTED.includes(e.newValue) ? e.newValue : 'en', false).catch(() => {});
   }
 });

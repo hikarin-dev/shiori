@@ -12,8 +12,9 @@
 //     as 1.3's pages did in their markup (what recognises the app by it may look once, as a page
 //     loads); src/frame.tsx keeps that element and changes it with the page;
 //   - every module the page will run to draw the address is asked for at once (<link rel=modulepreload>),
-//     so they arrive together instead of in waves; and the UI font's faces (app/font-init.js declares
-//     them) right after the first frame, so they are there when the app draws its text, which
+//     so they arrive together instead of in waves, the words of the person's language among them
+//     (picked as app/js/languages.js picks it; English is in the list already); and the UI font's
+//     faces (app/font-init.js declares them) right after the first frame, so they are there when the app draws its text, which
 //     otherwise would ask for them only once drawn, and move when they came (by the font API: preload
 //     links for them let Chromium hold the first paint until they arrive);
 //   - the bundle's entry is started, first.
@@ -43,7 +44,23 @@
   // The entry first: asked for after the list, it waited behind every module of it (a browser opens a
   // few connections to a host at a time), and nothing runs before it.
   if (START.entry) add('script', { type: 'module', src: root + START.entry });
-  for (const path of START.start.concat(route ? route.preload : [])) {
+  // The language i18n.js will show (app/js/languages.js pickLanguage: a test holds this copy to it).
+  let lang = null;
+  try { lang = localStorage.getItem('shiori-lang'); } catch {}
+  if (!lang) {
+    const asked = typeof navigator === 'undefined' ? [] : navigator.languages || [navigator.language || 'en'];
+    lang = 'en';
+    for (let i = 0; i < asked.length; i++) {
+      const l = String(asked[i]), base = l.slice(0, 2).toLowerCase();
+      if (START.languages.indexOf(l) >= 0) { lang = l; break; }
+      if (/^zh\b/i.test(l)) { lang = 'zh-CN'; break; }
+      if (START.languages.indexOf(base) >= 0) { lang = base; break; }
+    }
+  }
+  if (START.languages.indexOf(lang) < 0) lang = 'en';
+  // Its words first: the start-up's first module waits for them.
+  const words = START.entry && lang !== 'en' ? [START.words.replace('*', lang)] : [];
+  for (const path of words.concat(START.start, route ? route.preload : [])) {
     if (path.endsWith('.css')) add('link', { rel: 'preload', as: 'style', href: root + path });
     else add('link', { rel: 'modulepreload', href: root + path });
   }

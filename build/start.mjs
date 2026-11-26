@@ -10,10 +10,13 @@
 //            once where a browser keeps the library (START_ALSO)
 //   routes   for each route, its chunk and what that imports, and the served stylesheets it draws with
 //            (`sheets` in the route table), less what `start` has
+//   words    a language's words, which start.js adds to the list for the language the page will show
+//            (`languages`, the app's: app/js/languages.js)
 // The entry itself is named apart: start.js adds it first, before the list.
 import fs from 'node:fs';
 import path from 'node:path';
 import { APP_PAGE, PAGES } from '../app/js/pages.js';
+import { SUPPORTED } from '../app/js/languages.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -22,6 +25,10 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 // app's window: the folder-access check. Elsewhere (Firefox, a site whose library the desktop app
 // keeps) it is fetched and not run.
 export const START_ALSO = ['app/js/library-folders.js'];
+
+// A language's words (app/js/locales/<code>.js), the code for the star: i18n.js loads the person's
+// language as it starts, so start.js asks for it with the rest (English comes in `start`, a static import).
+export const WORDS = 'app/js/locales/*.js';
 
 // A served module's static imports, as paths from the site's root. (Its own source is ours: plain
 // `import … from '…'`, `import '…'` and `export … from '…'` statements; `import(…)` is not one.)
@@ -56,7 +63,7 @@ function closure(files, chunks, root) {
 // the header and the meta alone.
 /** @param {{ bundle?: Record<string, any> | null, routes: Record<string, { page: string, app: boolean, header: boolean, sheets?: readonly string[] }>, root?: string }} options */
 export function startData({ bundle = null, routes, root = ROOT }) {
-  const data = { appPage: APP_PAGE, pages: PAGES, entry: null, start: [], routes: {} };
+  const data = { appPage: APP_PAGE, pages: PAGES, languages: SUPPORTED, words: WORDS, entry: null, start: [], routes: {} };
   for (const [segment, route] of Object.entries(routes)) {
     data.routes[segment] = { header: route.header, meta: route.app ? route.page : null, preload: [] };
   }

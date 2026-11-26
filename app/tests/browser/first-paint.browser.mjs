@@ -8,6 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServer, chromePath, launch, until } from './harness.mjs';
 import { builtSite } from '../../../build/built.mjs';
+import { LOCALES } from '../../js/locales.js';
 
 let server, origin, browser;
 before(async () => {
@@ -287,3 +288,73 @@ test('a hard load of /components asks for every module it runs at once, by the l
   assert.deepEqual(await page.evaluate(() => window.__shifts), [], 'nothing shifted, the coming of the font included');
   assert.deepEqual(page.problems, []);
 });
+
+// No flash of unstyled or unworded content, on every page, in English and in Japanese: every frame from
+// the navigation on (an animation frame callback from the document's start), the CPU slowed six times,
+// the page's ground is its last frame's from the first frame that has a body, the common header (where it
+// shows) is its band of 54px, and no frame shows a word of another language or a key in place of a word.
+// (The language's words are fetched as the page starts, src/start.js and app/js/i18n.js.)
+const G_WORDS = '1790000000931';
+const WORDS_PAGES = [['the library', '/'], ['an overview', `/overview?g=${G_WORDS}`], ['the reader', `/reader?g=${G_WORDS}&page=1`], ['Settings', '/settings'], ['Tasks', '/tasks']];
+const KEYS = new Set(Object.keys(LOCALES.en));
+// A language's words that are no other's: what a frame of the other language must not show.
+const own = (lang, other) => new Set(Object.entries(LOCALES[lang]).filter(([k, v]) => v.length >= 4 && v !== LOCALES[other][k] && !Object.values(LOCALES[other]).includes(v)).map(([, v]) => v));
+const NOT_SHOWN = { en: own('ja', 'en'), ja: own('en', 'ja') };
+for (const lang of ['en', 'ja']) for (const [name, path] of WORDS_PAGES) {
+  test(`${name} in ${lang === 'en' ? 'English' : 'Japanese'}, the CPU slowed six times: from its first frame, styled and in its own words`, async (t) => {
+    if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+    const context = await browser.createBrowserContext();
+    t.after(() => context.close());
+    const page = await context.newPage();
+    await page.setViewport({ width: 1280, height: 900 });
+    await page.setCacheEnabled(false);
+    page.problems = [];
+    page.on('pageerror', (e) => page.problems.push(`uncaught: ${e?.message || e}`));
+    await page.setRequestInterception(true);
+    page.on('request', (r) => (r.url().startsWith(origin) || /^(data|blob):/.test(r.url()) ? r.continue() : r.abort()));
+    // The library this context has: one gallery of two pages.
+    await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+    await page.evaluate(async (gid, lang) => {
+      localStorage.setItem('shiori-lang', lang);
+      localStorage.setItem('shiori:translateSettings', JSON.stringify({ serverUrl: 'http://127.0.0.1:9' }));
+      const api = await import('/app/js/api.js');
+      const c = new OffscreenCanvas(300, 430);
+      c.getContext('2d').fillRect(0, 0, 300, 430);
+      await api.meta.put({ galleryId: gid, title: { english: 'Words', japanese: '', pretty: '' }, tags: [], numPages: 2 });
+      for (const n of [1, 2]) await api.pages.put(gid, n, await c.convertToBlob({ type: 'image/png' }));
+    }, G_WORDS, lang);
+    await page.evaluateOnNewDocument(() => {
+      const frames = (window.__frames = []);
+      const tick = () => {
+        if (document.body) {
+          const texts = [];
+          const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            const text = n.nodeValue.trim();
+            if (text && n.parentElement?.checkVisibility?.({ visibilityProperty: true })) texts.push(text);
+          }
+          const header = document.querySelector('#root > header');
+          frames.push({ ground: getComputedStyle(document.body).backgroundColor, header: header && getComputedStyle(header).display !== 'none' ? header.getBoundingClientRect().height : null, texts });
+        }
+        if (frames.length < 400) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    const cdp = await page.createCDPSession();
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+    await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+    await until(page, () => window.__frames.length >= 60 && document.title.startsWith('Shiori — '), undefined, { what: 'the page drawn (its title set), and sixty frames', timeout: 60000 });
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+    const frames = await page.evaluate(() => window.__frames);
+    const last = frames[frames.length - 1];
+    assert.ok(last.texts.length > 0, 'the page has words');
+    frames.forEach((f, i) => {
+      assert.equal(f.ground, last.ground, `frame ${i}: the page's own ground`);
+      if (f.header != null) assert.equal(f.header, 54, `frame ${i}: the header's band`);
+      const wrong = f.texts.filter((text) => KEYS.has(text) || NOT_SHOWN[lang].has(text));
+      assert.deepEqual(wrong, [], `frame ${i}: a key, or the other language's words`);
+    });
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.frame ?? null), path.startsWith('/reader') ? null : 'header');
+    assert.deepEqual(page.problems, []);
+  });
+}
