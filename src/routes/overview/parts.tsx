@@ -4,18 +4,35 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStor
 import { createPageThumbs, type PageThumbDeps, type PageThumbs } from '@/lib/page-thumbs';
 import { ROW_WIDTH, coverKey, type OverviewCovers } from './covers';
 
+// The covers decoded this session, by picture: its shape, and the picture held as decoded. A box drawn
+// again with one of them (an overview come Back to, its covers kept: ./covers.ts) shows it in its first
+// frame, in its shape: a landscape cover's box is shorter than the empty box, and a hero that took its
+// shape some frames after the page was drawn moved everything under it (a series left at a scroll came
+// back 163px off it: plans' 8d/back-series.mjs).
+const DECODED_KEPT = 400;
+const decoded = new Map<string, { landscape: boolean; held: HTMLImageElement }>();
+const shownAs = (url: string | null) => {
+  const known = url ? decoded.get(url) : undefined;
+  return url && known ? { src: url, landscape: known.landscape } : null;
+};
+
 // A cover kept showing until another one is ready: the picture is decoded before it takes the box, so
 // the box never shows empty in between, and the cover it shows stays until a different one has come.
 // `landscape` follows the picture's own size (a landscape cover is contained, not cut off).
 export function useDecoded(url: string | null) {
-  const [shown, setShown] = useState<{ src: string; landscape: boolean } | null>(null);
-  const want = useRef<string | null>(null);
+  const [shown, setShown] = useState(() => shownAs(url));
+  const want = useRef<string | null>(shown?.src ?? null);
   useEffect(() => {
     if (!url || want.current === url) return;
     want.current = url;
+    const known = shownAs(url);
+    if (known) { setShown(known); return; }
     const img = new Image();
     img.src = url;
     img.decode().then(() => {
+      decoded.delete(url);   // the newest last
+      decoded.set(url, { landscape: img.naturalWidth >= img.naturalHeight, held: img });
+      for (const oldest of decoded.keys()) { if (decoded.size <= DECODED_KEPT) break; decoded.delete(oldest); }
       if (want.current !== url) return;   // a newer cover took the box meanwhile
       setShown({ src: url, landscape: img.naturalWidth >= img.naturalHeight });
     }, () => {});

@@ -93,6 +93,9 @@ const TagEditor = lazy(() => import('@/components/tag-editor').then((m) => ({ de
   }).catch(() => {});
 })();
 
+// The covers of the overviews shown this session (./overview/covers.ts, `kept`).
+const keptCovers = new Map<string, string>();
+
 export default function Overview() {
   // 1.3's page's own title (overview.html).
   useTitle('Series');
@@ -102,7 +105,7 @@ export default function Overview() {
   const g = new URLSearchParams(useLocation().search).get('g');
 
   // ── The page's stores: covers, jobs on rows, the page grids' engine, the import batches ──
-  const [covers] = useState(() => createOverviewCovers({ rpc: platform.rpc, onControl: platform.onControl }));
+  const [covers] = useState(() => createOverviewCovers({ rpc: platform.rpc, onControl: platform.onControl, kept: keptCovers }));
   useEffect(() => { covers.start(); return () => covers.stop(); }, [covers]);
   const [jobs] = useState(() => createChapterJobs({ jobs: platform.jobs as never, now: Date.now, reread: (gid) => { readAgain(client, gid).catch(() => {}); } }));
   useEffect(() => { jobs.start(); return () => jobs.stop(); }, [jobs]);

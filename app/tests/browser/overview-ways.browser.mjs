@@ -420,3 +420,52 @@ test('Back to a gallery\'s overview finds it as tall as it was left, its page gr
   await drawn();
   assert.deepEqual(page.problems, []);
 });
+
+// A series' overview: its hero's cover takes its box once decoded, and a landscape cover's box is shorter
+// than the empty one. Drawn again with its cover still to come, the hero took its shape some frames after
+// the page was drawn and moved everything under it (the series of sixty left at 1500 came back at 1337:
+// plans/frontend-react-probes/8d/back-series.mjs). The covers an overview has shown are kept for the
+// session, decoded (src/routes/overview/covers.ts `kept`, parts.tsx useDecoded): coming Back, the hero's
+// cover and the rows' are in the page's first frame, as a document the browser kept had them.
+test('Back to a series\' overview finds its covers in its first frame, the hero\'s in its shape: the scroll is kept in every frame', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const page = await open(`${OVERVIEW}?g=${L}`);
+  t.after(() => page.close());
+  // What shows: the scroll, the hero's cover and its shape, the rows in view with no cover yet.
+  const shows = () => {
+    const hero = document.querySelector('#seriesCover img');
+    const rows = [...document.querySelectorAll('.ch-row')].filter((r) => { const b = r.getBoundingClientRect(); return b.bottom > 0 && b.top < innerHeight; });
+    return `${Math.round(scrollY)} ${hero?.complete && hero.naturalWidth ? (hero.classList.contains('landscape') ? 'landscape' : 'portrait') : 'none'} ${rows.length ? rows.filter((r) => { const i = r.querySelector('.ch-thumb img'); return !(i?.complete && i.naturalWidth); }).length : 'no rows'}`;
+  };
+  await page.evaluate(`window.__shows = ${shows}`);   // the page's to call in each frame (one document throughout)
+  const settled = async () => {
+    await overviewSettles(page, L);
+    await until(page, () => document.querySelectorAll('.ch-row').length === 60, null, { what: 'sixty rows' });
+    await until(page, () => / 0$/.test(window.__shows()), null, { what: 'the covers of the rows in view' });
+  };
+  await settled();
+  await page.evaluate(() => { scrollTo(0, 1500); window.__mark = 'kept'; });
+  await settled();
+  await sleep(300);
+  const before = await page.evaluate(shows);
+  assert.equal(before, '1500 landscape 0', 'left at 1500, its cover a landscape one, every row in view with its cover');
+  for (const round of [1, 2]) {
+    await page.evaluate(() => { const a = Object.assign(document.createElement('a'), { href: '/tasks' }); document.body.append(a); a.click(); a.remove(); });
+    await until(page, () => !document.getElementById('ovContent') && !!document.getElementById('tkList'), null, { what: 'Tasks' });
+    await sleep(200);
+    const frames = await page.evaluate(() => new Promise((done) => {
+      const seen = [];
+      addEventListener('popstate', () => {
+        const tick = () => { seen.push(window.__shows()); if (seen.length < 40) requestAnimationFrame(tick); else done(seen); };
+        requestAnimationFrame(tick);
+      }, { once: true });
+      history.back();
+    }));
+    assert.deepEqual([...new Set(frames)], [before], `round ${round}: every one of forty frames as the page was left`);
+    await settled();
+    await sleep(300);
+    assert.equal(await page.evaluate(shows), before, `round ${round}: and once everything is in`);
+  }
+  assert.equal(await kept(page), true, 'the same document throughout');
+  assert.deepEqual(page.problems, []);
+});

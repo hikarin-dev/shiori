@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChapterJobs, LINGER_MS } from '../../src/routes/overview/jobs.ts';
-import { createOverviewCovers, coverKey, WAIT_MS } from '../../src/routes/overview/covers.ts';
+import { createOverviewCovers, coverKey, WAIT_MS, KEPT } from '../../src/routes/overview/covers.ts';
 import { thumbWidth, thumbWorkers, PAGE_CACHE_MAX, PAGE_CACHE_BYTES, PAGE_MOUNT_MARGIN, PAGE_UNMOUNT_MARGIN, PAGE_THUMB_FORMAT } from '../../src/lib/page-thumbs.ts';
 
 // Timers run by hand: advance(ms).
@@ -154,6 +154,52 @@ test('covers: asked once per role, gallery and width with a request id; an answe
   covers.stop();
   assert.equal(controls.size, 0);
   assert.equal(timers.pending, 0);
+});
+
+test('the covers of an overview shown before are there at once for the next, each asked for once more; the last KEPT stay, never one the page shows', () => {
+  const kept = new Map();
+  const world = () => {
+    const said = [], controls = new Set();
+    const covers = createOverviewCovers({ rpc: (msg) => said.push(msg), onControl: (cb) => { controls.add(cb); return () => controls.delete(cb); }, timers: handTimers(), kept });
+    covers.start();
+    return { covers, said, answer: (i, url) => { for (const cb of [...controls]) cb({ type: 'COVER_READY', requester: 'overview', requestId: said[i].requestId, coverDataUrl: url }); } };
+  };
+  const first = world();
+  first.covers.want('7', { preferSeries: true, width: 480 });
+  first.covers.want('8');
+  first.answer(0, 'data:seven');
+  first.answer(1, 'data:eight');
+  first.covers.stop();
+
+  // The next page: both at once, before anything is asked; then each asked for once, and no more.
+  const next = world();
+  let told = 0;
+  next.covers.subscribe(() => told++);
+  assert.equal(next.covers.get(coverKey('7', true, 480)), 'data:seven');
+  assert.equal(next.covers.get(coverKey('8', false, 160)), 'data:eight');
+  next.covers.want('7', { preferSeries: true, width: 480 });
+  next.covers.want('7', { preferSeries: true, width: 480 });
+  next.covers.want('8');
+  assert.deepEqual(next.said.map((m) => m.galleryId), ['7', '8']);
+  // The same picture tells nothing; another takes its place.
+  next.answer(0, 'data:seven');
+  assert.equal(told, 0);
+  next.answer(1, 'data:eight-new');
+  assert.equal(told, 1);
+  assert.equal(next.covers.get(coverKey('8', false, 160)), 'data:eight-new');
+  next.covers.want('8');
+  assert.equal(next.said.length, 2, 'this page has it now');
+
+  // More than KEPT: the oldest of the pages before go; none this page asked for.
+  for (let n = 0; n < KEPT; n++) kept.set(coverKey(`old${n}`, false, 160), 'data:old');
+  assert.ok(kept.size > KEPT);
+  next.covers.want('9');
+  next.answer(2, 'data:nine');
+  assert.equal(kept.size, KEPT);
+  for (const [gid, series, width] of [['7', true, 480], ['8', false, 160], ['9', false, 160]]) assert.ok(next.covers.get(coverKey(gid, series, width)), `${gid} is the page's own`);
+  assert.equal(kept.has(coverKey('old0', false, 160)), false);
+  assert.equal(kept.has(coverKey(`old${KEPT - 1}`, false, 160)), true);
+  next.covers.stop();
 });
 
 test('the page grids\' copies: 1.5 times the tile\'s pixels (zoom and pinch included), stepped by 32, at most 768; 1.3\'s bounds', () => {
