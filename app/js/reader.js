@@ -5013,7 +5013,14 @@ function _placeNarrowBar() {
   readerPinBtn.after(keybindBtn);
 }
 _placeNarrowBar();
-_narrow.addEventListener('change', () => { _placeNarrowBar(); _recomputeFold(); }, { signal: _rsSignal });
+// The window crossing 400px changes the bar's look at once: nothing of it eases from one form into the
+// other (reader.css: #topbar.tb-settling, for two frames).
+_narrow.addEventListener('change', () => {
+  topbar.classList.add('tb-settling');
+  requestAnimationFrame(() => requestAnimationFrame(() => topbar.classList.remove('tb-settling')));
+  _placeNarrowBar();
+  _recomputeFold();
+}, { signal: _rsSignal });
 
 // ── Page zoom (+/-) ──
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3, ZOOM_STEP = 0.1;

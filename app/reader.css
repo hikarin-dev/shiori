@@ -326,6 +326,8 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
    gives (it ellipsizes), never a button. Wider than 400px the bar is as it was, and nothing of this
    applies. */
 #topbar .tb-narrow-icon, #topbar .tb-go { display: none; }
+/* The window crossing 400px: the bar takes its other form at once (reader.js sets this for two frames). */
+#topbar.tb-settling, #topbar.tb-settling * { transition: none !important; }
 #topbar .tb-rows { display: contents; }
 @media (max-width: 400px) {
   #topbar { gap: 0; padding: 0 calc(8px + var(--page-scrollbar-gap)) 0 8px; }

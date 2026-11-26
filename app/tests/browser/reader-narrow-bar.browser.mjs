@@ -200,6 +200,9 @@ test('the list\'s rows do what the bar\'s buttons do, and a press on one puts th
 test('the window crossing 400px puts every control where the bar it shows has it, each way, and the wide bar folds as before', { skip: !chromePath() }, async (t) => {
   const order = (page) => page.evaluate(() => [...document.querySelectorAll('#topbar [id]')].map((el) => `${el.parentElement.id || el.parentElement.className}>${el.id}`).join(' '));
   const shown = (page) => page.evaluate(() => [...document.querySelectorAll('#topbar button, #topbar a, #topbar select')].filter((el) => el.getClientRects().length).map((el) => el.id || el.className).join(' '));
+  // What of the bar is easing, in the frame after the window has changed (a colour eased across 400px
+  // before: the buttons' white turning to the wide bar's grey over 0.12s).
+  const easing = (page) => page.evaluate(() => document.getAnimations().filter((a) => a.effect?.target?.closest?.('#topbar')).map((a) => a.transitionProperty));
   for (const kind of ['ts', 'plain']) {
     const wide = await reader(t, kind, { width: 1280, height: 760 });
     const narrow = await reader(t, kind, { width: 390, height: 760 });
@@ -208,6 +211,8 @@ test('the window crossing 400px puts every control where the bar it shows has it
     // (A tab behind another draws nothing, and is told of no change of the window: each in front in its turn.)
     await narrow.bringToFront();
     await narrow.setViewport({ width: 1280, height: 760 });
+    await narrow.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
+    assert.deepEqual(await easing(narrow), [], `${kind}: 390 → 1280, nothing of the bar eases into its wide form`);
     await sleep(200);
     assert.equal(await order(narrow), at.wide, `${kind}: 390 → 1280, where a bar loaded at 1280 has them`);
     assert.equal(await shown(narrow), at.shownWide, `${kind}: 390 → 1280, the same shown`);
@@ -216,11 +221,11 @@ test('the window crossing 400px puts every control where the bar it shows has it
     assert.equal(await shown(narrow), at.shownMid, `${kind}: 1280 → 560, folded as a bar loaded at 560`);
     await wide.bringToFront();
     await wide.setViewport({ width: 390, height: 760 });
+    await wide.evaluate(() => new Promise((r) => requestAnimationFrame(r)));
+    assert.deepEqual(await easing(wide), [], `${kind}: 1280 → 390, nothing of the bar eases into its narrow form`);
     await sleep(200);
     assert.equal(await order(wide), at.narrow, `${kind}: 1280 → 390, where a bar loaded at 390 has them`);
     assert.equal(await shown(wide), at.shownNarrow, `${kind}: 1280 → 390, the same shown`);
-    const moving = await wide.evaluate(() => document.getAnimations().filter((a) => a.effect?.target?.closest?.('#topbar')).map((a) => a.transitionProperty));
-    assert.deepEqual(moving, [], `${kind}: nothing of the bar eases into its narrow form`);
   }
 });
 
