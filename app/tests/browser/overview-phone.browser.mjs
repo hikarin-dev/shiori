@@ -73,10 +73,23 @@ const views = {
   },
 };
 
+// The library's stored sizes are measured a moment after a page first shows them, and the hero says
+// them ("41.8KB", its tip the other data's share): read once they have been still for two seconds, as
+// overview-table does. (Read straight after the visit, the whole suite's load caught them half
+// measured twice on 2026-11-26: "36.9KB" and "38.1KB", the other data 3KB and 4.2KB of its 7.9KB; the
+// file alone, 16 of 16.)
+const sizesStill = (page) => until(page, async () => {
+  const { totalSize } = await (await import('/app/js/api.js')).galleries.stats();
+  const now = performance.now();
+  if (totalSize !== window.__size) { window.__size = totalSize; window.__sizeSince = now; return false; }
+  return now - window.__sizeSince >= 2000;
+}, null, { what: 'the stored sizes still', timeout: 30000 });
+
 async function shown(part, { viewport = PHONE, then } = {}) {
   await page.setViewport(viewport);
   await page.evaluate(() => localStorage.removeItem('shiori:seriesView'));
   await visit(page, origin, NEW, gid(base, part));
+  await sizesStill(page);
   if (then) await then(page);
   return { read: plainRead(named(await page.evaluate(read), base)), boxes: await page.evaluate(boxes), finger: await page.evaluate(finger) };
 }
