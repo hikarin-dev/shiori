@@ -99,3 +99,35 @@ test('the server the tests and the preview use sends an old page\'s file on to i
     assert.deepEqual(await ask(`${site.origin}/${old}?g=1`), [301, `/${segment}?g=1`]);
   }
 });
+
+// The page's first script looks the address up among the routes. An address the app does not have that
+// is the name of something every object has (/constructor, /toString) is not a route: looked up without
+// asking whether the table has it, it found the object's own and the script threw as it listed what to
+// preload (the page still said "Not found.", with an error in its console). Run here as a browser runs
+// it, in a document that records what it adds.
+test('the page\'s first script takes /constructor and its like for addresses the app does not have', async () => {
+  const vm = await import('node:vm');
+  const { startData, startScript } = await import('../../build/start.mjs');
+  const { ROUTES } = await import('../../src/routes.ts');
+  const data = startData({ routes: ROUTES });
+  // As the build writes it for a built page: an entry, and a preload list for every route.
+  data.entry = 'assets/entry.js';
+  data.start = ['assets/start.js'];
+  for (const route of Object.values(data.routes)) route.preload = ['assets/route.js'];
+  const script = startScript(data);
+  const run = (path) => {
+    const added = [];
+    const html = { dataset: {} };
+    const document = {
+      documentElement: html, fonts: [],
+      head: { append: (el) => added.push(el) },
+      createElement: (tag) => ({ tag, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } }),
+    };
+    vm.runInNewContext(script, { document, location: new URL(`http://site.example${path}`), URL, Object, sessionStorage: { getItem: () => null }, requestAnimationFrame: () => {}, setTimeout });
+    return { frame: html.dataset.frame ?? null, meta: added.filter((el) => el.tag === 'meta').map((el) => el.attributes.content), links: added.filter((el) => el.tag === 'link').length };
+  };
+  assert.deepEqual(run('/tasks'), { frame: 'header', meta: ['tasks'], links: 2 }, 'a route: its frame, its meta, the start\'s file and its own');
+  for (const path of ['/constructor', '/toString', '/hasOwnProperty', '/__proto__', '/valueOf', '/nowhere']) {
+    assert.deepEqual(run(path), { frame: null, meta: [], links: 1 }, `${path}: no route's frame, meta or files; the start's own file alone`);
+  }
+});

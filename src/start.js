@@ -30,7 +30,7 @@
     const asked = kept == null ? null : kept.split(/[?#]/)[0];
     segment = asked != null && Object.hasOwn(START.pages, asked) ? asked : '';
   }
-  const route = START.routes[segment];
+  const route = Object.hasOwn(START.routes, segment) ? START.routes[segment] : undefined;   // (/constructor is no route)
   if (route && route.header) html.dataset.frame = 'header';
   else if (route && route.meta === 'reader') html.dataset.frame = 'reader';
 
