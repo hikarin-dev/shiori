@@ -143,6 +143,9 @@ function _tidy() {
 let _tags = [];          // the library's tags, [{ type, name, n }], read when the box gains focus
 let _tagsSeq = 0;
 let _raf = 0;
+// The list was closed (Escape, Enter, focus gone): a key, a move of the caret or focus opens it again;
+// the tags coming in do not (read as the box gains focus, they can come back after the Escape).
+let _closed = false;
 
 async function _loadTags() {
   const seq = ++_tagsSeq;
@@ -153,7 +156,7 @@ async function _loadTags() {
     const at = two ? two[0].length - 1 : key.indexOf(':');
     return { type: key.slice(0, at), name: key.slice(at + 1), n };
   });
-  _schedule();
+  if (!_closed) _schedule();
 }
 
 // What the caret is in: a filter's value being typed (`artist:an`, `tag:"big br`), or a plain word.
@@ -222,10 +225,12 @@ const _shownRow = (r) => (r.value == null
   : { row: r, key: r.filter.key, label: _display(r.filter.key, r.value), count: r.n ? formatCompact(r.n) : null });
 
 function _schedule() {
+  _closed = false;
   if (!_raf) _raf = requestAnimationFrame(_render);
 }
 
 function _close() {
+  _closed = true;
   if (_raf) { cancelAnimationFrame(_raf); _raf = 0; }
   _host.show(null);
 }

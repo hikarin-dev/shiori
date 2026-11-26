@@ -153,6 +153,47 @@ test('Escape closes the list for good: the drawing a key had just asked for is c
   assert.deepEqual(page.problems, []);
 });
 
+// That test failed once in the whole suite (2026-11-26) and passed alone. Traced, twelve copies at
+// once with every frame asked for after the Escape recorded with its caller: in 7 of 47 the list was
+// drawn again, each time by the library's tags, read as the box gains focus, coming back after the
+// Escape. A closed list stays closed until a key, a move of the caret or focus opens it; the tags
+// coming in fill a list that is showing or awaited, and open none. Here the read is held back.
+const heldTags = (page) => page.evaluate(async () => {
+  const api = await import('/app/js/api.js');
+  api.galleries.tagCounts = () => new Promise((answer) => { globalThis.__tagsIn = () => answer(new Map([['artist:zzq somebody', 3]])); });
+});
+const frames = (page, n) => page.evaluate((n) => new Promise((done) => { const step = () => (n-- > 0 ? requestAnimationFrame(step) : done()); step(); }), n);
+
+test('the library\'s tags coming in after Escape leave the list closed; the next key opens it with them', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  await heldTags(page);
+  await page.$eval('#searchClear', (b) => b.click());
+  await until(page, () => !!document.getElementById('searchSuggest') && typeof globalThis.__tagsIn === 'function', undefined, { what: 'the list, its tags asked for' });
+  await page.keyboard.press('Escape');
+  await until(page, () => !document.getElementById('searchSuggest'), undefined, { what: 'closed by Escape' });
+  await page.evaluate(() => globalThis.__tagsIn());
+  await frames(page, 6);
+  assert.equal(await list(page), null, 'still closed with the tags in');
+  await page.keyboard.type('zzq');
+  await until(page, () => (document.getElementById('searchSuggest')?.textContent || '').includes('zzq somebody'), undefined, { what: 'the list again, the tag in it' });
+  assert.deepEqual(page.problems, []);
+});
+
+test('the library\'s tags coming in fill a list that had nothing to show yet', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  await heldTags(page);
+  await page.$eval('#searchClear', (b) => b.click());
+  await until(page, () => !!document.getElementById('searchSuggest') && typeof globalThis.__tagsIn === 'function', undefined, { what: 'the list, its tags asked for' });
+  // A word no filter answers to, the tags not in yet: nothing to list, and nobody closed it.
+  await page.keyboard.type('zzq');
+  await until(page, () => !document.getElementById('searchSuggest'), undefined, { what: 'nothing to list' });
+  await page.evaluate(() => globalThis.__tagsIn());
+  await until(page, () => (document.getElementById('searchSuggest')?.textContent || '').includes('zzq somebody'), undefined, { what: 'the tag listed as the tags come in' });
+  assert.deepEqual(page.problems, []);
+});
+
 test('on a phone, the library header\'s form: the search on a row of its own under the rest', async (t) => {
   const page = await componentsPage(t, browser, origin, { width: 390, height: 844, isMobile: true, hasTouch: true });
   if (!page) return;
