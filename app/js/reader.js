@@ -166,7 +166,10 @@ const _rsAtStart = _readerDocumentNow();   // put back by stop (READER_DOCUMENT)
 // The helpers this reader starts, first, as their modules did when they were loaded: reader-study.js's
 // document listeners, and the header's page menu (page-nav.js, which boot.js started).
 startStudy();
-const _rsEndPageNav = initPageNav(go);
+// Leaving for another page of the app: the address first takes the page being read (it follows at
+// most every URL_SYNC_MS), so Back finds the reader where it was left.
+const _rsLeave = (path) => { _flushUrl(); go(path); };
+const _rsEndPageNav = initPageNav(_rsLeave);
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -1513,8 +1516,8 @@ function _buildDividerCard(k, compact = false) {
     _hidePageDivider();
     _jumpToPage(target.start + 1);
   }));
-  el.querySelector('[data-act="series"]').addEventListener('click', () => { if (_series) go(`overview?g=${_series.ownerId}`); });
-  el.querySelector('[data-act="home"]').addEventListener('click', () => { go(''); });
+  el.querySelector('[data-act="series"]').addEventListener('click', () => { if (_series) _rsLeave(`overview?g=${_series.ownerId}`); });
+  el.querySelector('[data-act="home"]').addEventListener('click', () => { _rsLeave(''); });
   return el;
 }
 
@@ -1810,20 +1813,28 @@ const URL_SYNC_MS = 100;
 let _urlSyncTimer = null, _urlSyncedAt = 0, _urlLive = false;
 function _syncUrl() {
   if (!_urlLive || _urlSyncTimer) return;
-  _urlSyncTimer = setTimeout(() => {
-    _urlSyncTimer = null;
-    _urlSyncedAt = performance.now();
-    const ch = _chapters[_chapterAt(currentPage)];
-    if (!ch) return;
-    try {
-      const u = new URL(location.href);
-      u.searchParams.set('g', String(ch.id));
-      u.searchParams.set('page', String(currentPage - ch.start));
-      u.searchParams.delete('p');
-      if (u.href !== location.href) history.replaceState(history.state, '', u);
-    } catch {}
-  }, Math.max(0, _urlSyncedAt + URL_SYNC_MS - performance.now()));
+  _urlSyncTimer = setTimeout(_writeUrl, Math.max(0, _urlSyncedAt + URL_SYNC_MS - performance.now()));
 }
+function _writeUrl() {
+  _urlSyncTimer = null;
+  _urlSyncedAt = performance.now();
+  const ch = _chapters[_chapterAt(currentPage)];
+  if (!ch) return;
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('g', String(ch.id));
+    u.searchParams.set('page', String(currentPage - ch.start));
+    u.searchParams.delete('p');
+    if (u.href !== location.href) history.replaceState(history.state, '', u);
+  } catch {}
+}
+// A write still waiting, done now: the page is being left (_rsLeave, or a link of the reader's pressed).
+function _flushUrl() {
+  if (!_urlSyncTimer) return;
+  clearTimeout(_urlSyncTimer);
+  _writeUrl();
+}
+document.addEventListener('click', (e) => { if (!e.defaultPrevented && e.target.closest?.('a[href]')) _flushUrl(); }, { capture: true, signal: _rsSignal });
 
 // Thumbnails cover a SCOPE of the merged list: the whole series when the strip flows the series
 // continuously, the current chapter everywhere else (single/double, and the per-chapter strip).
