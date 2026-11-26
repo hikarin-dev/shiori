@@ -148,8 +148,8 @@ test('the one page\'s document defaults reach no control of the reader\'s: each 
     seen.menu = await page.evaluate(controls);
     await page.keyboard.press('Escape');
     await page.keyboard.press('i');
-    await page.waitForSelector('.pp-dialog[open]');
-    await until(page, () => document.querySelectorAll('.pp-dialog button').length > 1, null, { what: 'page properties' });
+    await page.waitForSelector('[data-reader-part="properties"]');
+    await until(page, () => document.querySelectorAll('[data-reader-part="properties"] [data-pp="section"]').length > 1, null, { what: 'page properties' });
     await settle(page);
     seen.properties = await page.evaluate(controls);
     assert.deepEqual(page.problems, []);

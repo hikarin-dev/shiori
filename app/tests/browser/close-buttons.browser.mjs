@@ -1,5 +1,7 @@
 // close-buttons.browser.mjs — every dialog's close button, and the toast's, is the reader settings'
-// X: the same box, frame, colour and glyph, so no corner of the app draws its own.
+// X: the same box, frame, colour and glyph, so no corner of the app draws its own. (Since 8e the reader's
+// own dialogs left are reader settings and the keys; page properties is the app's Dialog, whose corner X
+// ui-dialog.browser holds, and the reader's notices are the one page's toast.)
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
@@ -53,13 +55,8 @@ test('every close button is the reader settings\' X', async (t) => {
   assert.equal(model.w, 28);
   assert.ok(model.glyph, 'the model has an icon');
 
-  await page.evaluate(async (gid) => {
-    const m = await import('/app/js/reader-properties.js');
-    m.openPageProperties({ gid, pageNum: 1, url: '', number: 1, total: 1, chapter: null });
-  }, GID);
-  await until(page, () => document.querySelector('.pp-head .icon-btn'), null, { what: 'page properties' });
-  const got = { properties: await page.evaluate(look, '.pp-head .icon-btn') };
-  await page.evaluate(() => document.querySelector('.pp-dialog').close());
+  // (Page properties is the app's Dialog since 8e, its corner X held by ui-dialog.browser.)
+  const got = {};
   await page.evaluate(async () => (await import('/app/js/notice.js')).showToast({ text: 'Note', action: 'OK', onAction: () => {} }));
   // The reader drawn by the one page: its notices are the one page's (its Toast, whose close button
   // ui-toast.browser holds), not notice.js's own (plans: F77).

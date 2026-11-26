@@ -14,7 +14,7 @@ let server, origin, browser;
 // What draws each part (its box, its items or its close button).
 const MENU = '[data-reader-part="page-menu"]';
 const MENU_ITEM = '[data-slot="menu-item"]';
-const PROPERTIES = 'dialog.pp-dialog, [data-reader-part="properties"]';
+const PROPERTIES = '[data-reader-part="properties"]';
 const FEEDBACK = 'dialog.feedback-dialog[open], [data-reader-part="feedback"]';
 
 before(async () => {
@@ -259,6 +259,48 @@ test('page properties: its close button and a press on the backdrop close it; th
   await page.evaluate((sel) => [...document.querySelectorAll(`:is(${sel}) button`)].find((b) => b.getAttribute('aria-label') === 'Close').click(), PROPERTIES);
   await sleep(200);
   assert.equal((await state(page)).properties, false, 'its close button closes it');
+});
+
+// The owner's rule for dialogs: its top and its size never move once it shows. What it reads after it
+// opens (the page, its pictures, the plan from the server) fills it in place. Every frame from the
+// press until a second after it is filled, the CPU six times slower, at a desktop's size and a phone's.
+async function boxFrames(page, open, sel, filled) {
+  const cdp = await page.createCDPSession();
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+  try {
+    await page.evaluate((sel, filled) => {
+      window.__frames = [];
+      let after = 0;
+      const tick = () => {
+        const el = document.querySelector(sel);
+        if (el) { const r = el.getBoundingClientRect(); window.__frames.push([r.top, r.left, r.height, r.width].map((v) => Math.round(v * 100) / 100).join(' ')); }
+        if (el && document.querySelector(filled)) after++;
+        if (after < 40) requestAnimationFrame(tick); else window.__framesDone = true;
+      };
+      window.__framesDone = false;
+      requestAnimationFrame(tick);
+    }, sel, filled);
+    await open();
+    await until(page, () => window.__framesDone, null, { what: 'the frames', timeout: 30000 });
+    return await page.evaluate(() => window.__frames);
+  } finally { await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 }); }
+}
+
+test('page properties\' box neither moves nor grows after its first frame, the CPU six times slower', { skip: !chromePath() }, async (t) => {
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844, hasTouch: true, isMobile: true }]) {
+    const page = await reader(t);
+    await page.setViewport(viewport);
+    await sleep(400);
+    // The first opening, which fetches the dialog's code, and the next, which shows it loading first.
+    for (const time of ['first', 'second']) {
+      const frames = await boxFrames(page, () => page.keyboard.press('i'), PROPERTIES, `${PROPERTIES} [data-pp="again"]`);
+      assert.ok(frames.length >= 40, `${frames.length} frames`);
+      assert.deepEqual([...new Set(frames)], [frames[0]], `${viewport.width}px, ${time} opening: the box in every frame as in its first`);
+      await page.keyboard.press('Escape');
+      await until(page, async () => !(await import('/app/js/reader-properties.js')).propertiesOpen(), null, { what: 'closed' });
+      await sleep(200);
+    }
+  }
 });
 
 test('auto-play waits while page properties or feedback is open, and goes on once it closes', { skip: !chromePath() }, async (t) => {

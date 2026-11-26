@@ -496,9 +496,7 @@
         "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:3>div:1>div:0>#readerStudyTextGroup>div:1>label:1>#readerFurigana": 28,
         "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:3>div:1>div:1>div:1>button:0": 17,
         "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:3>div:1>div:1>div:1>button:1": 18,
-        "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:4>div:1>label:1>#readerDebugLoaded": 23,
-        "dialog.pp-dialog>header:0>div:1>button:0": 32,
-        "dialog.pp-dialog>header:0>div:1>button:1": 14
+        "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:4>div:1>label:1>#readerDebugLoaded": 23
       }
     },
     "side": {
@@ -962,9 +960,7 @@
         "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:3>div:1>div:0>#readerStudyTextGroup>div:1>label:1>#readerFurigana": 28,
         "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:3>div:1>div:1>div:1>button:0": 17,
         "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:3>div:1>div:1>div:1>button:1": 18,
-        "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:4>div:1>label:1>#readerDebugLoaded": 23,
-        "dialog.pp-dialog>header:0>div:1>button:0": 32,
-        "dialog.pp-dialog>header:0>div:1>button:1": 14
+        "#readerSettingsModal>#readerSettingsBox>div:1>#rsPanelDisplay>section:4>div:1>label:1>#readerDebugLoaded": 23
       }
     }
   }

@@ -237,7 +237,7 @@ async function use(page, c) {
   await key('Escape'); await sleep(100);
   if (c % 2) {
     await key('i');
-    await until(page, () => !!document.querySelector('dialog.pp-dialog[open]'), null, { what: 'page properties' });
+    await until(page, () => !!document.querySelector('[data-reader-part="properties"]'), null, { what: 'page properties' });
   } else {
     const at = await page.evaluate(() => { const r = document.getElementById('mainImg').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 20 }; });
     await page.mouse.click(at.x, at.y, { button: 'right' });

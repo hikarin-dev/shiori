@@ -368,7 +368,7 @@ test('entered and left five times (pages turned, a mode, study, a dialog), the r
     await until(page, () => !!document.querySelector('#readerSettingsModal.show'), null, { what: 'reader settings' });
     await page.keyboard.press('Escape');
     await page.keyboard.press('i');
-    await until(page, () => !!document.querySelector('dialog.pp-dialog[open]'), null, { what: 'page properties' });
+    await until(page, () => !!document.querySelector('[data-reader-part="properties"]'), null, { what: 'page properties' });
     await page.goBack();
     await until(page, () => !document.querySelector('.reader-frame') && !!document.getElementById('tkList'), null, { what: 'Tasks again' });
     await sleep(200);

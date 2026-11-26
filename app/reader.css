@@ -14,7 +14,7 @@
    as 1.3's base.css had them. Zero weight and first: every rule of the reader's outweighs it. Its roots
    are the reader's parts that hold controls: the frame's, and the dialogs and the menu its scripts add
    to <body>. */
-:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal, .feedback-dialog, .pp-dialog) :where(button, input, select, optgroup, textarea),
+:where(#topbar, #sideNav, #sideZoom, #snChapters, #viewport, #readerSettingsModal, .feedback-dialog) :where(button, input, select, optgroup, textarea),
 :where(#scrollTopBtn) {
   font: revert; font-variant-ligatures: none; letter-spacing: revert;
   color: revert; background-color: revert; border: revert; border-radius: revert; opacity: revert;
@@ -101,7 +101,7 @@
 }
 
 /* ── Button in the reader's dialogs: neutral, or .primary / .danger (1.3's base.css's) ── */
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn {
+:where(#readerSettingsModal, .feedback-dialog) .btn {
   flex: none;
   padding: 7px 14px;
   background: transparent;
@@ -114,15 +114,15 @@
   line-height: 1.55;
   cursor: pointer;
 }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger { background: var(--destructive-fill); border-color: transparent; color: var(--destructive); }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn.danger:hover:not(:disabled) { background: var(--destructive-fill-hover); border-color: transparent; }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .btn:disabled { opacity: .6; cursor: default; }
+:where(#readerSettingsModal, .feedback-dialog) .btn:hover:not(:disabled) { border-color: var(--muted-foreground); }
+:where(#readerSettingsModal, .feedback-dialog) .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+:where(#readerSettingsModal, .feedback-dialog) .btn.danger { background: var(--destructive-fill); border-color: transparent; color: var(--destructive); }
+:where(#readerSettingsModal, .feedback-dialog) .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
+:where(#readerSettingsModal, .feedback-dialog) .btn.danger:hover:not(:disabled) { background: var(--destructive-fill-hover); border-color: transparent; }
+:where(#readerSettingsModal, .feedback-dialog) .btn:disabled { opacity: .6; cursor: default; }
 
 /* ── Icon button in a dialog's corner: the close X, or a link beside it (1.3's base.css's) ── */
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn {
+:where(#readerSettingsModal, .feedback-dialog) .icon-btn {
   flex: none;
   width: 28px;
   height: 28px;
@@ -136,9 +136,9 @@
   cursor: pointer;
   text-decoration: none;
 }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn:hover { background: var(--secondary); color: var(--foreground); }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn[hidden] { display: none; }
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .icon-btn > svg {
+:where(#readerSettingsModal, .feedback-dialog) .icon-btn:hover { background: var(--secondary); color: var(--foreground); }
+:where(#readerSettingsModal, .feedback-dialog) .icon-btn[hidden] { display: none; }
+:where(#readerSettingsModal, .feedback-dialog) .icon-btn > svg {
   width: 15px;
   height: 15px;
   fill: none;
@@ -149,7 +149,7 @@
 }
 
 /* ── Switch: a hidden checkbox and its track (the reader's settings) ── */
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control {
+:where(#readerSettingsModal, .feedback-dialog) .switch-control {
   position: relative;
   width: 36px;
   height: 20px;
@@ -158,7 +158,7 @@
   cursor: pointer;
 }
 
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input {
+:where(#readerSettingsModal, .feedback-dialog) .switch-control input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -166,7 +166,7 @@
   pointer-events: none;
 }
 
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-track {
+:where(#readerSettingsModal, .feedback-dialog) .switch-track {
   position: absolute;
   inset: 0;
   background: #303038;
@@ -176,7 +176,7 @@
   transition: background-color .15s ease, border-color .15s ease;
 }
 
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-track::after {
+:where(#readerSettingsModal, .feedback-dialog) .switch-track::after {
   content: '';
   position: absolute;
   top: 2px;
@@ -189,18 +189,18 @@
   transition: background-color .15s ease, transform .15s ease;
 }
 
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input:checked + .switch-track {
+:where(#readerSettingsModal, .feedback-dialog) .switch-control input:checked + .switch-track {
   background: var(--primary);
   border-color: var(--primary);
 }
 
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input:checked + .switch-track::after {
+:where(#readerSettingsModal, .feedback-dialog) .switch-control input:checked + .switch-track::after {
   background: #fff;
   transform: translateX(16px);
 }
 
 /* The checkbox itself is hidden, so its track shows the browser's own focus ring. */
-:where(#readerSettingsModal, .feedback-dialog, .pp-dialog) .switch-control input:focus-visible + .switch-track {
+:where(#readerSettingsModal, .feedback-dialog) .switch-control input:focus-visible + .switch-track {
   outline: auto 1px -webkit-focus-ring-color;
 }
 
@@ -1187,105 +1187,6 @@ body.thumb-dragging * {
   #readerSettingsModal { --rs-gutter: 10px; --rs-pad-x: 14px; align-items: flex-end; }
   .rs-panel { align-self: stretch; padding-bottom: 14px; border-radius: 0 0 6px 6px; }
   .rs-choices-stack button { font-size: 9.5px; }
-}
-
-/* ── Page properties (I) ── */
-/* Contained overscroll keeps scrolls over the dialog off the pages behind it; its ::backdrop is
-   no scroller, so reader-properties.js stops wheels and swipes there. */
-.pp-dialog {
-  width: min(780px, calc(100vw - 32px)); max-height: min(860px, calc(100vh - 40px)); margin: auto; padding: 0;
-  color: var(--foreground); background: var(--popover); border: 1px solid var(--input); border-radius: 12px;
-  box-shadow: 0 18px 55px rgba(0,0,0,.45); overflow: hidden; overscroll-behavior: contain;
-}
-.pp-dialog[open] { display: flex; flex-direction: column; }
-.pp-dialog::backdrop { background: var(--backdrop); }
-.pp-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  padding: 16px 20px 13px; border-bottom: 1px solid var(--border);
-}
-.pp-title { margin: 0; font-size: 14px; font-weight: 700; }
-.pp-sub { margin: 4px 0 0; color: var(--muted-foreground); font-size: 11px; }
-.pp-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.pp-btn {
-  height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent;
-  color: var(--muted-foreground); font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer; transition: border-color .12s, color .12s;
-}
-.pp-btn { padding: 0 10px; }
-.pp-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--foreground); }
-.pp-btn:disabled { opacity: .4; cursor: default; }
-.pp-body { overflow: auto; overscroll-behavior: contain; padding: 0 20px 18px; }
-.pp-note { margin: 8px 0 0; color: var(--muted-foreground); font-size: 10px; line-height: 1.55; }
-.pp-dim { color: var(--muted-foreground); }
-
-.pp-hero { display: flex; gap: 16px; padding: 16px 0 14px; }
-.pp-thumb {
-  flex: none; align-self: flex-start; width: 92px; max-height: 136px; object-fit: contain;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--reader-background);
-}
-.pp-hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-.pp-hero-dims { font-size: 16px; font-weight: 700; }
-.pp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.pp-chip {
-  padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); font-size: 10px;
-}
-.pp-chip.translated { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
-.pp-chip.reverted { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
-.pp-chip.own { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); }
-.pp-total { color: var(--muted-foreground); font-size: 11px; }
-.pp-total b { color: var(--foreground); }
-.pp-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--reader-background); }
-.pp-seg { min-width: 3px; }
-.c-original { background: #7b8cff; }
-.c-translated { background: var(--success); }
-.c-steps { background: var(--warning); }
-.c-study { background: var(--primary); }
-.pp-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; color: var(--muted-foreground); font-size: 10px; }
-.pp-legend li { display: flex; align-items: center; gap: 5px; }
-.pp-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
-.pp-legend b { color: var(--foreground); font-weight: 600; }
-
-.pp-sec { padding: 13px 0; border-top: 1px solid var(--border); }
-.pp-sec h3 {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 9px;
-  color: var(--muted-foreground); font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
-}
-.pp-sec-meta { color: var(--foreground); font-size: 10px; letter-spacing: 0; text-transform: none; }
-.pp-grid { display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr); gap: 6px 18px; margin: 0; font-size: 11px; }
-.pp-grid dt { color: var(--muted-foreground); }
-.pp-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.pp-mono dd, .pp-mono dt, span.pp-mono { font-size: 10px; }
-.pp-mono dd { color: color-mix(in srgb, var(--foreground) 80%, var(--muted-foreground)); }
-.pp-wrap { word-break: break-all; }
-.pp-details { margin-top: 11px; }
-.pp-details > summary { color: var(--muted-foreground); font-size: 11px; cursor: pointer; }
-.pp-details > summary:hover { color: var(--foreground); }
-.pp-details[open] > summary { margin-bottom: 9px; }
-.pp-detail-scroll { max-height: 240px; overflow: auto; padding-right: 6px; }
-.pp-again { margin-top: 11px; }
-
-.pp-steps, .pp-text { width: 100%; border-collapse: collapse; font-size: 11px; }
-.pp-steps th, .pp-steps td, .pp-text th, .pp-text td {
-  padding: 6px 10px 6px 0; text-align: left; vertical-align: top;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-}
-.pp-steps th { width: 150px; color: var(--muted-foreground); font-weight: 500; }
-.pp-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.pp-steps td.pp-num, .pp-text td.pp-num { padding-right: 0; }
-.pp-total-row th, .pp-total-row td { border-bottom: 0; padding-top: 8px; }
-.pp-text th { color: var(--muted-foreground); font-size: 10px; font-weight: 500; }
-.pp-text td.pp-num { width: 24px; color: var(--muted-foreground); text-align: left !important; }
-.pp-text td.pp-src { width: 45%; color: var(--muted-foreground); }
-.pp-text tr.filtered td { opacity: .55; }
-.pp-tag { margin-left: 6px; padding: 0 5px; border: 1px solid var(--border); border-radius: 3px; font-size: 9px; }
-.pp-details .pp-text { display: block; max-height: 320px; overflow: auto; }
-
-@media (max-width: 560px) {
-  .pp-dialog { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
-  .pp-head { padding: 14px 14px 11px; }
-  .pp-body { padding: 0 14px 14px; }
-  .pp-grid { grid-template-columns: minmax(0, 1fr); gap: 1px; }
-  .pp-grid dd { margin-bottom: 7px; }
-  .pp-steps th { width: 96px; }
 }
 
 /* ── The status line of a page's translation ── */

@@ -108,9 +108,8 @@ test('other modal bodies, lists and nested details share native styling and acce
       ['Reader settings', '<div id="readerSettingsBox"><div class="rs-panel active"></div></div>', '.rs-panel'],   // the tab shown scrolls
       ['Feedback dialog', '<dialog class="feedback-dialog" open></dialog>', '.feedback-dialog'],
       ['Related feedback', '<fieldset class="feedback-related"></fieldset>', '.feedback-related'],
-      ['Page properties body', '<div class="pp-body"></div>', '.pp-body'],
-      ['Page properties settings', '<details class="pp-details" open><summary>Settings</summary><div class="pp-detail-scroll"><dl class="pp-grid"></dl></div></details>', '.pp-detail-scroll'],
-      ['Page properties text', '<details class="pp-details" open><summary>Text</summary><table class="pp-text"></table></details>', '.pp-text'],
+      // (Page properties' body and lists left 2026-11-26 with its drawing: the app's Dialog and its own
+      // boxes, held by the test after this one on the dialog itself.)
     ];
     for (const [index, [name, html, selector]] of examples.entries()) {
       const owner = document.createElement('div');
@@ -121,23 +120,9 @@ test('other modal bodies, lists and nested details share native styling and acce
       const viewport = owner.querySelector(selector);
       viewport.dataset.auditViewport = '';
       viewport.style.cssText += 'position:relative;inset:auto;width:280px;height:200px;max-height:200px;min-height:0;margin:0';
-      if (viewport.matches('.pp-text')) {
-        const body = document.createElement('tbody');
-        for (let i = 0; i < 80; i++) {
-          const row = body.insertRow(); row.insertCell().textContent = 'Text ' + i;
-        }
-        viewport.append(body);
-      } else if (viewport.matches('.pp-detail-scroll')) {
-        const grid = viewport.querySelector('dl');
-        for (let i = 0; i < 80; i++) {
-          const term = document.createElement('dt'), value = document.createElement('dd');
-          term.textContent = 'Setting ' + i; value.textContent = 'Value ' + i; grid.append(term, value);
-        }
-      } else {
-        const content = document.createElement('div');
-        content.style.cssText = 'height:1600px;flex:none';
-        viewport.append(content);
-      }
+      const content = document.createElement('div');
+      content.style.cssText = 'height:1600px;flex:none';
+      viewport.append(content);
       document.body.append(owner);
     }
     return examples.length;
@@ -167,11 +152,13 @@ test('other modal bodies, lists and nested details share native styling and acce
   }
 });
 
+// Page properties in the reader (the app's Dialog since 8e): its two lists opened, each scrolling in a box of
+// its own, the same rows in the native and the drawn scrollbars.
 test('rendered Page properties grids keep their layout inside native and overlay scroll areas', { skip: !chromePath() }, async t => {
-  const page = await fresh(t, true);
-  await page.evaluate(async () => {
+  const page = await fresh(t);
+  const gid = '1790000000401';
+  await page.evaluate(async (gid) => {
     const api = await import('/app/js/api.js');
-    const gid = '1790000000401';
     const canvas = new OffscreenCanvas(32, 32);
     canvas.getContext('2d').fillRect(0, 0, 32, 32);
     const blob = await canvas.convertToBlob({ type: 'image/png' });
@@ -180,11 +167,14 @@ test('rendered Page properties grids keep their layout inside native and overlay
         builds: { detect: 'build-token-'.repeat(900) } } } });
     await api.pages.put(gid, 1, blob);
     await api.derived.putTranslation(gid, 1, { image: blob, pipeline: { job: 'fixture', lines: [], regions: [] } });
-    const { openPageProperties } = await import('/app/js/reader-properties.js');
-    await openPageProperties({ gid, pageNum: 1, number: 1, total: 1 });
-    document.querySelectorAll('.pp-details').forEach(el => { el.open = true; });
-  });
-  const selector = '.pp-detail-scroll';
+  }, gid);
+  // In by a link, as the app's own are followed.
+  await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); }, `/reader?g=${gid}&page=1`);
+  await page.waitForFunction(() => [...document.querySelectorAll('#stripView img, #mainImg')].some((i) => i.naturalWidth > 0));
+  await page.keyboard.press('i');
+  await page.waitForFunction(() => document.querySelectorAll('[data-reader-part="properties"] [data-slot="collapsible-trigger"]').length === 2);
+  for (const trigger of await page.$$('[data-reader-part="properties"] [data-slot="collapsible-trigger"]')) await trigger.click();
+  const selector = '[data-reader-part="properties"] [data-pp="scroll"]';
   assert.equal(await page.$$eval(selector, elements => elements.length), 2);
   assert.ok(await page.$$eval(selector, elements => elements.every(el => el.scrollHeight > el.clientHeight)));
   const spacing = () => page.$$eval(selector, elements => elements.map(el => {
@@ -194,7 +184,7 @@ test('rendered Page properties grids keep their layout inside native and overlay
   const native = await spacing();
   assert.deepEqual(await nativeStyle(page, selector), { width: 'thin', color: 'rgb(82, 82, 92) rgba(0, 0, 0, 0)' });
   await preference(page, true);
-  await page.waitForFunction(() => document.querySelectorAll('.pp-detail-scroll > .scrollbar-host').length === 2);
+  await page.waitForFunction((sel) => document.querySelectorAll(`${sel} > .scrollbar-host`).length === 2, {}, selector);
   assert.deepEqual(await spacing(), native, 'overlay controls must not consume a grid cell or move the rows');
   await preference(page, false);
   assert.deepEqual(await spacing(), native);
