@@ -5,7 +5,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until, READER_PATH } from './harness.mjs';
 import { builtSite } from '../../../build/built.mjs';
 
 let server, origin, browser;
@@ -151,7 +151,7 @@ test('a plain link to an address the one page draws is followed inside the app; 
 
   // A page that still has a file of its own: loaded as always.
   await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), click('toReader')]);
-  await until(page, () => document.title === 'Shiori — Reader' && location.pathname === '/reader', undefined, { what: 'the reader\'s page' });
+  await until(page, (path) => document.title === 'Shiori — Reader' && location.pathname === path, READER_PATH, { what: 'the reader\'s page' });
   assert.equal(await page.evaluate(() => window.stayed), undefined, 'a page load');
   assert.deepEqual(page.problems, []);
 });

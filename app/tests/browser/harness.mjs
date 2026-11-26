@@ -55,6 +55,37 @@ globalThis.__reader = startReader();
 `,
 };
 
+// The reader drawn by the one page, at its route (/reader-next), in place of its own page: READER_ROUTE=1
+// in the environment (or openPage's `route`) makes every test that opens the reader open the route
+// instead. A navigation to the reader's page (/reader, or its file app/reader.html) is sent on to the
+// route with its query, so a test's own goto and a link of the app's alike land there. READER_PATH is
+// the reader's address for a test that reads it. On the route the engine is started by the route, from
+// app/js/reader.js: a `reader` entry there is that module with a few lines after it, which wrap
+// startReader as READER_ENTRIES' entries do (keep, strict; again needs a frame drawn anew, which only
+// the route draws: leaving and coming back).
+export const READER_ROUTE = !!process.env.READER_ROUTE;
+export const READER_PATH = READER_ROUTE ? '/reader-next' : '/reader';
+const ROUTE_ENTRY_TAIL = {
+  keep: `
+const __shioriStart = startReader;
+globalThis.__startReader = __shioriStart;
+startReader = function (options) {
+  const attrs = (el) => Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]));
+  globalThis.__beforeStart = { html: attrs(document.documentElement), body: attrs(document.body), title: document.title };
+  return (globalThis.__reader = __shioriStart(options));
+};
+`,
+  strict: `
+const __shioriStart = startReader;
+globalThis.__startReader = __shioriStart;
+startReader = function (options) { __shioriStart(options).stop(); return (globalThis.__reader = __shioriStart(options)); };
+`,
+};
+function routeEntry(reader) {
+  if (!ROUTE_ENTRY_TAIL[reader]) throw new Error(`no reader entry "${reader}" on the route`);
+  return readFileSync(join(builtSite(), 'app', 'js', 'reader.js'), 'utf8') + ROUTE_ENTRY_TAIL[reader];
+}
+
 // The reader's page has sheets the route that will draw it inside the one page does not load: the
 // old pages' shared sheets. The rest of its sheets are the reader's own.
 export const OLD_PAGE_SHEETS = ['base.css', 'reader-aliases.css', 'notice.css'];
@@ -121,7 +152,8 @@ const NOWHERE = 'ws://127.0.0.1:9/';
 // 'added' with the one page's stylesheets in it beside its own (addedDocument); READER_STYLES in the
 // environment does the same for every page a test opens. `onePage`: sheets (by address) the one
 // page's document links after its own stylesheet, at every address but the reader's (onePageWith).
-export async function openPage(browser, origin, { allow = [], reader = process.env.READER_START, styles = process.env.READER_STYLES, onePage = null } = {}) {
+// `route`: the reader opened at its route (READER_ROUTE, above).
+export async function openPage(browser, origin, { allow = [], reader = process.env.READER_START, styles = process.env.READER_STYLES, onePage = null, route = READER_ROUTE } = {}) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   await page.setBypassServiceWorker(true);
@@ -141,8 +173,17 @@ export async function openPage(browser, origin, { allow = [], reader = process.e
   const readerDoc = styles === 'route' ? routeDocument() : styles === 'added' ? addedDocument() : null;
   if (styles && !readerDoc) throw new Error(`no reader styles "${styles}"`);
   const onePageDoc = onePage ? onePageWith(onePage) : null;
+  const routeReader = route && reader ? routeEntry(reader) : null;
   page.on('request', (req) => {
     const url = req.url();
+    if (route && url.startsWith(origin) && req.isNavigationRequest() && ['/reader', '/app/reader.html'].includes(new URL(url).pathname)) {
+      req.respond({ status: 302, headers: { location: `${origin}/reader-next${new URL(url).search}` } });
+      return;
+    }
+    if (routeReader && url.startsWith(origin) && new URL(url).pathname === '/app/js/reader.js') {
+      req.respond({ status: 200, contentType: 'text/javascript', body: routeReader });
+      return;
+    }
     if ((readerDoc || onePageDoc) && url.startsWith(origin) && req.isNavigationRequest()) {
       const path = new URL(url).pathname;
       const doc = path === '/reader' ? readerDoc : /^\/[a-z]*$/.test(path) ? onePageDoc : null;

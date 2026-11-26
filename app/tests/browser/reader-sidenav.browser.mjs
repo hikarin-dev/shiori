@@ -1,6 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until, READER_ROUTE } from './harness.mjs';
 
 // The reader's side navigation (Reader settings → Navigation → Side): the chapter pill, the column
 // of buttons, fit and zoom, hiding and showing them, auto-scroll, dimming, and page turns that only a
@@ -80,6 +80,29 @@ async function reader(t, { gallery = SINGLE, at = 1, mode = 'strip', fit = 'heig
 }
 
 const settle = (ms = 400) => new Promise(resolve => setTimeout(resolve, ms));
+
+// The reader drawn by the one page (READER_ROUTE): no script of the reader's runs before the route draws
+// its frame, so what "before its script runs" asks of the reader's own page is asked there of every
+// frame the browser draws from the navigation on until a page is drawn: what `look` names, read in each
+// (a frame's paint follows its animation frame callbacks), from the first in which the frame is there.
+async function framesUntilDrawn(page, look, settings) {
+  await page.evaluateOnNewDocument((settings, look) => {
+    for (const [key, value] of Object.entries(settings)) localStorage.setItem(key, value);
+    const read = () => (look === 'top bar shown'
+      ? getComputedStyle(document.getElementById('topbar')).display !== 'none'
+      : getComputedStyle(document.getElementById('sideZoom')).opacity);
+    window.__frames = [];
+    const drawn = () => [...document.querySelectorAll('#stripView img[src], #mainImg, .dImg')].some((img) => img.naturalWidth > 0);
+    const tick = () => {
+      if (document.getElementById('topbar')) window.__frames.push(read());
+      if (!drawn()) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, settings, look);
+  await page.goto(`${origin}/reader?g=${SINGLE}&page=1`, { waitUntil: 'load' });
+  await until(page, () => [...document.querySelectorAll('#stripView img[src], #mainImg, .dImg')].some((img) => img.naturalWidth > 0), null, { what: 'a page drawn' });
+  return page.evaluate(() => window.__frames);
+}
 const opacity = (page, sel) => page.$eval(sel, el => Number(getComputedStyle(el).opacity));
 const isOn = (page, sel) => page.$eval(sel, el => el.classList.contains('is-on'));
 const counter = page => page.$eval('#pageCounter', el => Number(el.textContent.split('/')[0].trim()));
@@ -111,6 +134,7 @@ test('the settings switch the reader between the top bar and the side controls, 
   assert.equal(await page.$eval('[data-reader-nav="side"]', b => b.classList.contains('active')), true);
   assert.deepEqual(await page.$$eval('[data-reader-nav] span', s => s.map(el => el.textContent)), ['Classic', 'Modern']);
   await page.reload({ waitUntil: 'load' });
+  await page.waitForSelector('#topbar');   // drawn after the load event where the one page draws the reader
   assert.deepEqual(await shown(), { side: true, top: false, rail: true }, 'a reload opens with the side controls');
   await openSettings(page, 'display');
   await page.click('[data-reader-nav="top"]');
@@ -118,6 +142,16 @@ test('the settings switch the reader between the top bar and the side controls, 
 });
 
 test('a reader set to the side controls never shows the top bar, not even before its script runs', { skip: !chromePath() }, async t => {
+  if (READER_ROUTE) {
+    for (const side of [true, false]) {
+      const page = await openPage(browser, origin);
+      t.after(() => page.close());
+      const frames = await framesUntilDrawn(page, 'top bar shown', { 'shiori-reader-nav': side ? 'side' : 'top' });
+      assert.ok(frames.length > 0, 'frames recorded');
+      assert.deepEqual([...new Set(frames)], [!side], side ? 'the top bar showed in a frame' : 'the top bar should show in every frame');
+    }
+    return;
+  }
   for (const side of [true, false]) {
     // The reader's own script held back: what the page shows before it runs (the first paint can).
     const page = await browser.newPage();
@@ -1253,6 +1287,17 @@ test('fit and zoom hide with the controls, and come back with the navigation or 
 });
 
 test('hidden from the start, fit and zoom never show before the reader has set itself up', { skip: !chromePath() }, async t => {
+  if (READER_ROUTE) {
+    for (const side of [true, false]) {
+      const page = await openPage(browser, origin);
+      t.after(() => page.close());
+      const frames = await framesUntilDrawn(page, 'zoom opacity',
+        { 'shiori-reader-nav': side ? 'side' : 'top', [side ? 'shiori-reader-side-pin' : 'shiori-reader-pin']: '0' });
+      assert.ok(frames.length > 0, 'frames recorded');
+      assert.deepEqual([...new Set(frames)], ['0'], side ? 'modern, hidden' : 'classic, unpinned');
+    }
+    return;
+  }
   for (const side of [true, false]) {
     // The reader's own script held back: what the page shows before it runs.
     const page = await browser.newPage();

@@ -163,7 +163,10 @@ test('the toast, and a notice over a page\'s dialog', async (t) => {
 
 test('a page that is not React\'s: notice.js draws its own', async (t) => {
   if (!browser) { t.skip('Chrome not found'); return; }
-  const page = await openPage(browser, origin);
+  // The reader's own page, whichever draws the reader in the other tests (READER_ROUTE): it is the page
+  // with a file of its own, where notice.js draws by itself (on the route the one page's notice host
+  // draws, as ui-notice's other tests hold).
+  const page = await openPage(browser, origin, { route: false });
   t.after(() => page.close());
   await page.goto(`${origin}/reader`, { waitUntil: 'load' });
   await page.evaluate(() => { import('/app/js/notice.js').then((n) => n.confirmDialog({ title: 'Stop?' }).then((a) => { window.__answer = a; })); });

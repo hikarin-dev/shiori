@@ -98,7 +98,9 @@ test("a full backup is saved as one file by the browser's downloads, and restore
 // (notice.js's own drawing, on a page that has a file of its own: the reader's, with no gallery. Until
 // 2026-11-25 this ran on 1.3's library page.)
 test('while a backup runs the page behind it is held: no keys, no focus, no drops, no leaving unasked', { skip: !chromePath() }, async () => {
-  const page = await openPage(browser, origin);
+  // The reader's own page, whichever draws the reader in the other tests (READER_ROUTE): notice.js's own
+  // drawing is what this holds.
+  const page = await openPage(browser, origin, { route: false });
   await page.goto(`${origin}/reader`, { waitUntil: 'load' });
   const held = await page.evaluate(async () => {
     const { showOperation } = await import('/app/js/notice.js');

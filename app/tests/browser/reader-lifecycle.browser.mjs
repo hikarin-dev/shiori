@@ -4,7 +4,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until, READER_ROUTE } from './harness.mjs';
 
 const GALLERY = '1790000000401';
 const PAGE_COUNT = 12;
@@ -275,7 +275,10 @@ async function leftAfterStop(page, cdp) {
   return { nodes, jsEventListeners, listeners, ...inPage };
 }
 
-test('started, used and stopped five times, the reader leaves nothing behind, and nothing of it runs after a stop', { skip: !chromePath() }, async (t) => {
+// On the reader's own page, its frame drawn again by the test before each start. Where the one page draws
+// the reader (READER_ROUTE) only the route draws frames: reader-route.browser.mjs holds the same there by
+// entering and leaving the route.
+test('started, used and stopped five times, the reader leaves nothing behind, and nothing of it runs after a stop', { skip: !chromePath() ? true : READER_ROUTE && 'on the route: reader-route.browser.mjs' }, async (t) => {
   const page = await openPage(browser, origin, { reader: 'keep' });
   t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
   await page.evaluateOnNewDocument(() => { localStorage.setItem('shiori-reader-nav', 'top'); localStorage.setItem('shiori-reader-pin', '1'); localStorage.setItem('shiori:readerMode', '"strip"'); });

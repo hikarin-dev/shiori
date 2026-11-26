@@ -13,7 +13,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
+import { startServer, chromePath, launch, openPage, until, READER_PATH } from './harness.mjs';
 import { record } from './records.mjs';
 import { standInHelper, HELPER_STATUS } from './stand-in-helper.mjs';
 import { librarySettled } from './library-drive.mjs';
@@ -175,7 +175,7 @@ test('the overview\'s own scroll is kept on Back from the reader', async (t) => 
   let back;
   for (let round = 1; round <= 3; round++) {
     await follow(page, '.ch-row:nth-child(30) .ch-title-open');
-    await until(page, () => location.pathname.endsWith('/reader') && !!document.getElementById('topbar'), null, { what: 'the reader' });
+    await until(page, (path) => location.pathname.endsWith(path) && !!document.getElementById('topbar'), READER_PATH, { what: 'the reader' });
     await page.goBack();
     await overviewSettles(page, L);
     await sleep(600);
