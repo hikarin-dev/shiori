@@ -5,16 +5,12 @@
 // The list hangs straight off its box, so its side has to be settled before it opens: below,
 // unless only the space above can fit it. Delegated from the document (the bar's select is drawn by the
 // route's frame, after this is started).
-//
-// A styled box is only as wide as its chosen option (a native one fits its widest), so a
-// free-standing box marked data-fit-widest is held at its widest option's width instead: it
-// doesn't jump between picks, and every option fits the list.
 
 // The selects the look is for: the reader's, in its top bar (reader.css holds its dropdowns' rules to
 // it). A page that draws the reader beside controls of its own keeps its selects to itself, the reader
 // shown or left.
 const READER_SELECT = ':is(#topbar) select';
-const readerSelects = (more = '') => document.querySelectorAll(READER_SELECT + more);
+const readerSelects = () => document.querySelectorAll(READER_SELECT);
 
 const ROW = 28;        // rough option row height (px) — only used to judge whether the list fits below
 const MAX_ROWS = 8;   // the list shows at most this many options and scrolls the rest (reader.css)
@@ -49,22 +45,6 @@ function wrapOptions(sel) {
   sel.selectedIndex = selected;
 }
 
-// Measured by showing each option in turn — synchronous, so nothing paints in between and no
-// change event fires.
-function fitWidest() {
-  for (const sel of readerSelects('[data-fit-widest]')) {
-    const keep = sel.selectedIndex;
-    sel.style.minWidth = '';
-    let width = 0;
-    for (let i = 0; i < sel.options.length; i++) {
-      sel.selectedIndex = i;
-      width = Math.max(width, sel.offsetWidth);
-    }
-    sel.selectedIndex = keep;
-    sel.style.minWidth = `${width}px`;
-  }
-}
-
 let _inited = false;
 export function initDropdowns() {
   if (_inited || !CSS.supports('appearance', 'base-select')) return;
@@ -73,6 +53,4 @@ export function initDropdowns() {
   window.addEventListener('shiori-scrollbar-change', () => readerSelects().forEach(wrapOptions));
   document.addEventListener('pointerdown', place, true);
   document.addEventListener('keydown', place, true);
-  document.fonts.ready.then(fitWidest);                    // widths depend on the loaded font
-  window.addEventListener('shiori-lang-change', fitWidest); // …and on the option labels
 }
