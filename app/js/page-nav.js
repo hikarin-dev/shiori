@@ -7,16 +7,21 @@
 import { t } from './i18n.js';
 
 const gallery = () => new URLSearchParams(location.search).get('g');
+// Each page's address, from the site's root.
 const PAGES = [
-  { id: 'library', label: 'nav.library', href: () => '../' },
-  { id: 'overview', label: 'nav.overview', href: () => `../overview?g=${encodeURIComponent(gallery())}` },
-  { id: 'reader', label: 'nav.reader', href: () => `../reader${location.search}` },
-  { id: 'settings', label: 'nav.settings', href: () => '../settings' },
-  { id: 'tasks', label: 'tasks.title', href: () => '../tasks' },
+  { id: 'library', label: 'nav.library', path: () => '' },
+  { id: 'overview', label: 'nav.overview', path: () => `overview?g=${encodeURIComponent(gallery())}` },
+  { id: 'reader', label: 'nav.reader', path: () => `reader${location.search}` },
+  { id: 'settings', label: 'nav.settings', path: () => 'settings' },
+  { id: 'tasks', label: 'tasks.title', path: () => 'tasks' },
 ];
+// The site's root, from this file's own address (app/js/page-nav.js), whatever base the page has.
+const SITE_ROOT = new URL('../../', import.meta.url);
+const load = (path) => { location.href = new URL(path, SITE_ROOT).href; };
 
-// Returns what ends it again (its listeners), for a page that is taken away without unloading.
-export function initPageNav() {
+// `go(path)` goes to the page picked (a page load by default; a page that draws the reader inside itself
+// gives its own way). Returns what ends it again (its listeners), for a page taken away without unloading.
+export function initPageNav(go = load) {
   const select = document.getElementById('pageNav');
   if (!select) return () => {};
   const started = new AbortController();
@@ -31,7 +36,7 @@ export function initPageNav() {
   }));
   select.addEventListener('change', () => {
     const page = PAGES.find(p => p.id === select.value);
-    if (page && page.id !== current) location.href = page.href();
+    if (page && page.id !== current) go(page.path());
   }, { signal });
   // Back here from the page picked (the back/forward cache keeps the pick): this page again.
   window.addEventListener('pageshow', () => { select.value = current; }, { signal });

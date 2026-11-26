@@ -92,11 +92,18 @@ function _putReaderDocumentBack(at) {
   return undone;
 }
 
+// The site's root, from this file's own address (app/js/reader.js): the reader's links to the app's
+// other pages are made from it, so they are right whatever base the page drawing the reader has.
+const SITE_ROOT = new URL('../../', import.meta.url);
+// Leaving for another page of the app: `path` from the site's root ('' the library, 'overview?g=…').
+// A page that draws the reader inside itself gives startReader its own way (a change of route).
+const leaveByLoad = (path) => { location.href = new URL(path, SITE_ROOT).href; };
+
 // ── Start and stop (made by plans/frontend-react-probes/8a/transform.mjs) ──
 // Everything below runs once per start. What would outlive the reader is made through the instance:
 // listeners on the window and the document take its signal, and the globals that make timers,
 // frames, observers, workers and object URLs are shadowed here so each is known and released by stop.
-export function startReader() {
+export function startReader({ go = leaveByLoad } = {}) {
 const _rsWin = globalThis;
 const _rsAbort = new AbortController();
 const _rsSignal = _rsAbort.signal;
@@ -159,7 +166,7 @@ const _rsAtStart = _readerDocumentNow();   // put back by stop (READER_DOCUMENT)
 // The helpers this reader starts, first, as their modules did when they were loaded: reader-study.js's
 // document listeners, and the header's page menu (page-nav.js, which boot.js started).
 startStudy();
-const _rsEndPageNav = initPageNav();
+const _rsEndPageNav = initPageNav(go);
 
 // Site names/links come from sites.js (runtime data + the localStorage warm start, so source
 // labels are correct on first paint instead of waiting for the bridge to answer).
@@ -1506,8 +1513,8 @@ function _buildDividerCard(k, compact = false) {
     _hidePageDivider();
     _jumpToPage(target.start + 1);
   }));
-  el.querySelector('[data-act="series"]').addEventListener('click', () => { if (_series) location.href = `../overview?g=${_series.ownerId}`; });
-  el.querySelector('[data-act="home"]').addEventListener('click', () => { location.href = '../'; });
+  el.querySelector('[data-act="series"]').addEventListener('click', () => { if (_series) go(`overview?g=${_series.ownerId}`); });
+  el.querySelector('[data-act="home"]').addEventListener('click', () => { go(''); });
   return el;
 }
 
@@ -2879,7 +2886,7 @@ function _syncSideChapter() {
   if (series) snChLabel.dataset.tip = t('rd.chapters');   // a single gallery has no list to offer
   else delete snChLabel.dataset.tip;
   const owner = _series ? _series.ownerId : galleryId;
-  if (owner) snOverview.href = `../overview?g=${encodeURIComponent(owner)}`;
+  if (owner) snOverview.href = new URL(`overview?g=${encodeURIComponent(owner)}`, SITE_ROOT).href;
 }
 
 // Fit and zoom: one button switching fit width ⇄ fit height (lit while either fits); zooming turns
