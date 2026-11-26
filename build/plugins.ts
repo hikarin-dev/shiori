@@ -136,9 +136,7 @@ export function siteFiles(): Plugin {
   };
 }
 
-// Under the dev server (`npm run dev`): a page that still has a file of its own is sent as that
-// file, at its clean address and as it is — Vite's own handling would rewrite it, and its policy
-// pins its one inline script by hash. An address the one page answers goes on to Vite as a request
+// Under the dev server (`npm run dev`): an address the one page answers goes on to Vite as a request
 // for index.html, which Vite serves its own way (left to guess, Vite takes an address without an
 // extension for a module when asked by anything but a navigation — and finds one: /components is
 // also the name of components.json at the root).
@@ -190,10 +188,8 @@ export function devPages(): Plugin {
         // An old page's file, gone since the one page draws its address: sent on to that address.
         const moved = movedTo(pathname.slice(1));
         if (moved != null) { res.writeHead(301, { Location: `/${moved}${search}`, 'Cache-Control': 'no-cache' }).end(); return; }
-        const file = pageFile(pathname.replace(/^\/+|\/+$/g, ''));
-        if (!file) { next(); return; }
-        if (file === APP_PAGE) { req.url = `/${APP_PAGE}${search}`; next(); return; }
-        res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' }).end(fs.readFileSync(path.join(ROOT, file)));
+        if (pageFile(pathname.replace(/^\/+|\/+$/g, '')) === APP_PAGE) req.url = `/${APP_PAGE}${search}`;
+        next();
       });
     },
   };

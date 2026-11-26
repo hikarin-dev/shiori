@@ -1,8 +1,7 @@
 // first-paint.browser.mjs — what the one page shows and fetches before its app runs (index.html,
 // start.js, build/start.mjs): the common header's frame, painted from the page itself on the routes
 // that have it and drawn again by React on the same pixels — 1.3's header and brand — with nothing
-// shifting; none of it where the page hands the visitor on to another file, which fetches none of the
-// app either; and every module the page runs to draw an address asked for at once, by the list.
+// shifting; and every module the page runs to draw an address asked for at once, by the list.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';

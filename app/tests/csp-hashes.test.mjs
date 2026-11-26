@@ -77,8 +77,9 @@ test('the built one page carries the policy of the app\'s other pages', () => {
 
 test('service-worker waits are bounded so a failed install cannot strand a page', () => {
   // Install is fail-fast on critical assets; without a timeout, navigator.serviceWorker.ready
-  // simply never settles and the visitor sits on a blank page.
-  for (const f of ['src/entry.ts', '404.html']) {
+  // simply never settles and the visitor sits on a blank page. (404.html is the one page that waits
+  // for it: the one page's entry waits on no worker, sw-install-budget.test.mjs.)
+  for (const f of ['404.html']) {
     const src = readFileSync(join(repo, f), 'utf8');
     assert.match(src, /serviceWorker\.ready/, `${f} should await the worker`);
     assert.match(src, /Promise\.race/, `${f} must bound that wait`);

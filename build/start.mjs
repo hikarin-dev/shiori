@@ -10,8 +10,7 @@
 //            once where a browser keeps the library (START_ALSO)
 //   routes   for each route, its chunk and what that imports, and the served stylesheets it draws with
 //            (`sheets` in the route table), less what `start` has
-// The entry itself is named apart: start.js adds it in every case, the list only when the page draws
-// (a page about to hand the visitor on to another file fetches no more than it needs to decide).
+// The entry itself is named apart: start.js adds it first, before the list.
 import fs from 'node:fs';
 import path from 'node:path';
 import { APP_PAGE, PAGES } from '../app/js/pages.js';

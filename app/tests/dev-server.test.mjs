@@ -1,7 +1,7 @@
 // dev-server.test.mjs — what the dev server (`npm run dev`, build/plugins.ts devPages) answers
-// before Vite does: a page that still has a file of its own, at its clean address, as the file it
-// is; an address the one page answers, as Vite's index.html; and /sw.js as a worker that can never
-// become the one in charge — under the dev server the app has no worker, and runs its jobs in the tab.
+// before Vite does: an address the one page answers, as Vite's index.html; an old page's file, sent on
+// to its address; and /sw.js as a worker that can never become the one in charge — under the dev
+// server the app has no worker, and runs its jobs in the tab.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -33,19 +33,6 @@ function ask(url) {
 test('it runs under the dev server only, and before Vite\'s own handling', () => {
   assert.equal(plugin.apply, 'serve');
   assert.equal(typeof handle, 'function', 'the middleware is added when the server is configured, not after Vite\'s own');
-});
-
-test('a page with a file of its own is sent as that file, at its clean address', () => {
-  for (const [segment, file] of Object.entries(PAGES)) {
-    if (file === APP_PAGE) continue;
-    for (const url of [`/${segment}`, `/${segment}?g=1&page=2`]) {
-      const answer = ask(url);
-      assert.equal(answer.passedOn, false, `${url} is answered here`);
-      assert.equal(answer.status, 200);
-      assert.match(answer.headers['Content-Type'], /^text\/html/);
-      assert.equal(answer.body, readFileSync(join(repo, file), 'utf8'), `${url} is ${file}, byte for byte (its policy pins its inline script)`);
-    }
-  }
 });
 
 test('an address the one page answers goes to Vite as its index.html, the query kept', () => {

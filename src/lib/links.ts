@@ -1,8 +1,8 @@
 // links.ts — a plain link to an address the one page draws is followed inside the app, without a page
 // load, as React's own links are. React's markup uses the router's links; this is for the rest (a
-// link in markup the app didn't write as a component, a link in translated text). A link to a page
-// that still has a file of its own loads it as always (pages.js decides), and so does anything the
-// person asks the browser for: a modifier key, another window, a download.
+// link in markup the app didn't write as a component, a link in translated text). A link to an address
+// that is no page of the app (pages.js decides: a file of the site, another site) loads as always, and
+// so does anything the person asks the browser for: a modifier key, another window, a download.
 import { APP_PAGE, pageFile } from '@lib/pages.js';
 import { siteRoot } from '../entry';
 
@@ -13,7 +13,7 @@ type Navigate = (to: string) => unknown;
 export const drawnHere = (segment: string) => pageFile(segment) === APP_PAGE;
 
 // Goes to `path` (from the site's root: 'settings', 'overview?g=…', '' for the library): a route
-// change for a page the one page draws, a plain navigation for one that still has a file of its own.
+// change for a page the one page draws, a plain navigation for any other address.
 export function goTo(navigate: Navigate, path: string) {
   if (drawnHere(path.split(/[?#]/)[0])) navigate(`/${path}`);
   else location.assign(siteRoot + path);
