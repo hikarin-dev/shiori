@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-nHIykoemB5spavukVbu/PL25d+brF5XTGQqOioMD3pI='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-BNfLY/Xjk/2fGnmXVaFy9WFFXIszJE+3Bkw/Y8UAHsE='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
@@ -12,9 +12,9 @@
   // /settings) — they aren't real files. A hard reload bypasses the service worker, so we reload once
   // it's ready: that reload IS served by the worker (as the page that answers the address), with the
   // address bar left clean. With no worker yet (a first visit) this doesn't wait on an install: it
-  // keeps the address and goes to the app's one page (index.html), which either draws what the
-  // address asks for or goes on to the file that does (src/entry.ts); the app registers the worker
-  // that suits where its library is kept.
+  // keeps the address and goes to the app's one page (index.html), which puts the address back
+  // (src/entry.ts) and draws what it asks for; the app registers the worker that suits where its
+  // library is kept.
   // The retry flag (cleared by the app once it boots) lets this run on every hard reload, while
   // bailing to the one page if the worker can't take over. Truly unknown paths say so.
   (async () => {

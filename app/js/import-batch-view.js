@@ -3,7 +3,7 @@
 // (titles and bytes in, the pace and the time left, the title under way, the titles found imported
 // already and those that failed, and when nothing has moved for a while), and its titles as a list,
 // filtered and shown a step at a time. Also how a page asks the page running a batch for its titles.
-// The import tracker draws from it (import-tracker.js, and the new UI's ImportTracker).
+// The import tracker draws from it (src/components/import-tracker.tsx).
 
 import { t } from './i18n.js';
 import { formatBytes, formatCount } from './format.js';

@@ -1,4 +1,4 @@
-// The library's filter (app/library.html's #filterModal): rating and category, each option any → show
+// The library's filter (1.3's #filterModal, app/library.html): rating and category, each option any → show
 // only → hide as it is pressed (TriStateToggle), applied and kept as it is pressed; Clear and Close;
 // Escape or a press beside it closes it, and focus goes back to the toolbar's button. A dialog of the
 // app's (Dialog, xl 620: §5.3 F26–F28, S10, S16), its contents 1.3's: the hint, the legend, the two

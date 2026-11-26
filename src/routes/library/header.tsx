@@ -1,4 +1,4 @@
-// The library's parts of the common header (app/library.html's): after the brand, the page menu, the
+// The library's parts of the common header (1.3's, app/library.html): after the brand, the page menu, the
 // search and the pin; at the right the menu button, the three totals (galleries, images, stored, each
 // with its tip), Import, Safe Mode and Settings. Drawn on 1.3's sizes (library.css): wider than 1400px
 // the totals sit in the bar and Import shows its word; at 1400px or less the totals fold behind the

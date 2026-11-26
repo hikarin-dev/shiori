@@ -1,7 +1,7 @@
 // sw.js — root-scoped service worker. The app's files live under /app/, but its pages are served
 // at clean URLs (the library at the scope root, plus /settings and /reader). This worker maps
-// those clean navigations to the file that answers each (app/js/pages.js: a page's own app/*.html,
-// or index.html, the one page), caches the shell for offline, and runs the durable background jobs.
+// those clean navigations to the file that answers each (app/js/pages.js: index.html, the one page),
+// caches the shell for offline, and runs the durable background jobs.
 //
 // It has to live at the repo root: a worker under /app/ can only control /app/*, and GitHub Pages
 // can't grant a wider scope via the Service-Worker-Allowed header. Same two roles as before —

@@ -1,8 +1,8 @@
 // pages.js — the app's addresses, and the file that answers each.
 //
-// Every address is one segment under the site's root ('' is the root itself). A page drawn by the
-// one page that holds the whole app is answered by index.html; a page that still has a file of its
-// own, by that file. Whoever answers an address reads it here: the service worker, the one page's
+// Every address is one segment under the site's root ('' is the root itself), and every one is
+// answered by index.html, the one page that holds the whole app. Whoever answers an address reads it
+// here: the service worker, the one page's
 // entry, the desktop app's server, the dev server and the server the tests and the preview use.
 // (404.html cannot import a module: it names the same addresses in a list of its own, and a test
 // holds the two equal.)

@@ -1,4 +1,4 @@
-// notice-store.ts — what notice.js asks the new UI to draw (T11). notice.js keeps every function and
+// notice-store.ts — what notice.js asks the one page to draw (T11). notice.js keeps every function and
 // promise it has; this registers as its host (setNoticeHost), so each call lands here as a request,
 // and the NoticeHost component (src/components/notice-host.tsx, in the app's frame) draws the
 // requests with the app's Dialog and Toast. Registered before the start-up modules run (main.tsx),

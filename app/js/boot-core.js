@@ -15,8 +15,8 @@ import { services } from './services.js';
 import { pollActiveTranslations } from './submit-job.js';
 import './app-update.js';
 
-// We reached an app page, so it booted — clear the hard-reload recovery flag that index.html /
-// 404.html set to bounce the navigation through the service worker (see those files). Left set, the
+// We reached an app page, so it booted — clear the hard-reload recovery flag that 404.html sets to
+// bounce the navigation through the service worker (see that file). Left set, the
 // next hard reload would assume the worker had failed and skip the recovery.
 try { sessionStorage.removeItem('shiori-sw-retry'); } catch {}
 

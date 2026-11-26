@@ -1,7 +1,6 @@
 // ImportTracker — a batch of imports as people follow it: a panel per batch (the library, an overview
 // and Tasks show one), wherever the batch runs. Its store is the page's (src/lib/import-batches.ts:
-// the same channel and state as app/js/import-tracker.js), so the page can stop every batch and count
-// those running; what a panel says is import-batch-view.js's, worked out as it is drawn.
+// the jobs channel's 'import' jobs), so the page can stop every batch and count those running; what a panel says is import-batch-view.js's, worked out as it is drawn.
 //
 // Drawn as 1.3's .ib: the row card (8px apart, 10px 12px inside, 6px between its lines; 8px 10px at
 // 600px or less), a head 28px high at least (the kind, where it runs, the batch's name and size, the

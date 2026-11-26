@@ -1,8 +1,7 @@
 // PageMenu — the header's page name, "/ Library ▾": a quiet menu of the app's pages, the one showing
-// chosen. Choosing another goes there: a route change for a page the one page draws, a plain
-// navigation for one that is still a page of its own (src/lib/links.ts, goTo; app/js/pages.js decides).
+// chosen. Choosing another goes there, by a change of route (src/lib/links.ts, goTo).
 // A gallery's overview is offered where the address names a gallery, the reader only in the reader,
-// as app/js/page-nav.js does on the old pages (which keep it).
+// as app/js/page-nav.js does in the reader's own top bar.
 //
 // Drawn closed as 1.3's .page-nav to the pixel: Select's ghost look at xs (26px, 6px in, 13px, as
 // wide as the page's name), 5px into the "/"'s gap (styles/frame.css: the header's forms place it). With a pointer its list is the app's; under a

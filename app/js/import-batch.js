@@ -3,7 +3,7 @@
 // is left empty), and a title imported before — the same files, by its fingerprint
 // (import-files.js importFingerprint) — is skipped when it was finished, or carries on in its gallery
 // when it was cut short. A batch of several titles reports as one 'import' job on the jobs channel
-// (the tracker on the library and tasks pages, import-tracker.js) and is stopped as one; its titles'
+// (the tracker on the library and tasks pages, src/components/import-tracker.tsx) and is stopped as one; its titles'
 // own news says which batch it belongs to. It runs where imports run: the library page in a browser,
 // the desktop app's runner (handed over whole, submit-job.js handImportBatch).
 

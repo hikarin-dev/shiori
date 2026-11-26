@@ -1,7 +1,6 @@
 // import-batches.ts — the batches of imports a page follows, for the ImportTracker component
-// (src/components/import-tracker.tsx), kept outside React (read with useSyncExternalStore). The same
-// channel and state as app/js/import-tracker.js's panels, which the pages not ported yet still draw:
-// a panel per batch, by the 'import' jobs on the jobs channel and those under way at load; Stop
+// (src/components/import-tracker.tsx), kept outside React (read with useSyncExternalStore), as 1.3's
+// panels (app/js/import-tracker.js until the port) followed them: a panel per batch, by the 'import' jobs on the jobs channel and those under way at load; Stop
 // (STOP_JOB, pressable again after 3 s), Dismiss (once it has ended: it goes, and its record is
 // cleared), and its titles as a list, asked for again every 2 s while it runs. What a batch says and
 // how it stands are import-batch-view.js's, read when it is drawn: the store says to draw again every

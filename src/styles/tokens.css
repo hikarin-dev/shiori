@@ -1,5 +1,5 @@
 /* tokens.css — Shiori's design tokens: every colour, type size, radius, shadow, layer, duration and
-   easing the new UI may use, and the Tailwind utilities made from them.
+   easing the app's UI may use, and the Tailwind utilities made from them.
 
    How they are named, once for the whole file:
    - Colours are custom properties on :root under shadcn's names where shadcn has one (--background,

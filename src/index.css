@@ -1,4 +1,4 @@
-/* index.css — the new UI's one stylesheet: Tailwind's theme and utilities (not its base styles: the
+/* index.css — the one page's stylesheet: Tailwind's theme and utilities (not its base styles: the
    document's defaults are today's, styles/document.css), shadcn's own rules, Shiori's tokens. */
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);

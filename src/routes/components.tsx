@@ -1,4 +1,4 @@
-// The components page: the design tokens and each shared component, as the new UI draws them. The
+// The components page: the design tokens and each shared component, as the app draws them. The
 // tokens are read from the stylesheet itself (styles/tokens.css), so every one shows, by its name;
 // each component shows every shape, variant and state it has (specimens/, the parity check's subjects).
 import { useState } from 'react';
