@@ -358,3 +358,23 @@ for (const lang of ['en', 'ja']) for (const [name, path] of WORDS_PAGES) {
     assert.deepEqual(page.problems, []);
   });
 }
+
+// The page says its language from its start, as 1.3's pages did: figures are written in it (format.js
+// reads <html lang>), and a browser chooses letter shapes and breaks words by it. (The one page said
+// "en" in every language until the language was changed in that tab: a German reader's 1.234.567
+// was written 1,234,567.)
+test('the page says its language from its start, and figures are written in it', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  for (const [lang, figure] of [['de', '1.234.567'], ['ja', '1,234,567'], ['en', '1,234,567']]) {
+    for (const path of ['/tasks', '/']) {
+      const page = await browser.newPage();
+      await page.setBypassServiceWorker(true);
+      await page.evaluateOnNewDocument((lang) => { localStorage.setItem('shiori-lang', lang); }, lang);
+      await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+      await until(page, () => !!document.querySelector('#root main, #tkList, #grid'), null, { what: `${path} in ${lang}` });
+      const seen = await page.evaluate(async () => ({ lang: document.documentElement.lang, figure: (await import('/app/js/format.js')).formatCount(1234567) }));
+      assert.deepEqual(seen, { lang, figure }, `${path} in ${lang}`);
+      await page.close();
+    }
+  }
+});

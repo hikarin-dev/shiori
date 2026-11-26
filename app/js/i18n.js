@@ -24,6 +24,10 @@ const _load = (lang) => (_words[lang] ? Promise.resolve(_words[lang])
 let _lang = pickLanguage(localStorage.getItem('shiori-lang'), navigator.languages || [navigator.language || 'en']);
 // (Words that can't be had, which the page's own files are, leave it in English.)
 if (_lang !== 'en') { try { await _load(_lang); } catch { _lang = 'en'; } }
+// The page says its language (figures are written in it: format.js; a browser picks letter shapes and
+// breaks words by it), from its start. (1.3's pages each filled their own markup as they started,
+// which set it; the one page fills none, and said "en" in every language until one was changed.)
+document.documentElement.lang = _lang;
 
 export function getLang() { return _lang; }
 
