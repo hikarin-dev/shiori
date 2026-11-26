@@ -42,7 +42,8 @@
   </div>
 
   <!-- Translate ⇄ Study: one segmented toggle, mutually exclusive (or both off). The indicator
-       slides between the two sides. Like the reading-mode toggle, it never folds into the menu. -->
+       slides between the two sides. It folds into the "⋯" panel only once the gallery's number would
+       clip; in the narrow bar (400px and under) its two sides are buttons of the bar's own. -->
   <div class="seg-toggle" id="viewToggle" data-state="off" style="display:none">
     <div class="seg-indicator"></div>
     <button class="seg" id="translateSeg" data-tip="Show translation" data-i18n-tip="rd.tip_translate"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg></button>

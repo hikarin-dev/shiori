@@ -232,7 +232,6 @@
     --z-index-page-menu: 200;         /* the header's burger menu */
     --z-index-page-overlay: 300;      /* search suggestions, go-to-top, loading and empty screens, the drawn page scrollbar */
     --z-index-dialog: 400;
-    --z-index-dialog-raised: 410;     /* reader settings */
     --z-index-status: 420;            /* the reader's status pill */
     --z-index-status-menu: 430;       /* its picker */
     --z-index-dialog-over: 440;       /* a dialog over the reader's own chrome and settings: page properties, feedback */

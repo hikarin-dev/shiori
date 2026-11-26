@@ -2788,7 +2788,7 @@ function _toggleControls() {
 window.addEventListener('wheel', (e) => {
   if (readerPinned) return;
   if (!e.deltaY) return;
-  // Scrolling inside a modal is not scrolling the pages.
+  // Scrolling over a dialog is not scrolling the pages.
   if (propertiesOpen() || feedbackOpen() || _keysOpen || _settingsOpen) return;
   if (e.deltaY < 0) {
     if (!document.body.classList.contains('reader-nav-auto') && ++readerNavWheelUps >= READER_NAV_REVEAL_UNITS) {
@@ -4056,6 +4056,8 @@ function _clickWheelPageNav(dir) {
   return true;
 }
 
+// (`select`: the top bar's page menu, the browser's own select with dropdown.js's look, which stays the
+// reader's chrome: its fold measures the bar's own children, and in the narrow bar the menu leaves it.)
 function _isClickWheelNavTarget(target) {
   return !target.closest('button, a, input, textarea, select, [contenteditable]');
 }
@@ -5299,7 +5301,7 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape') {
     // First Escape dismisses any revealed study bubbles (text-display bubbles fall back to
-    // their original text instead of closing); otherwise it toggles the shortcuts modal.
+    // their original text instead of closing); otherwise it toggles the keys list.
     if (studyMode && document.querySelector('.bubble-box.revealed')) {
       document.querySelectorAll('.bubble-box.revealed').forEach(box => {
         if (box._reset) { box._reset(); return; }

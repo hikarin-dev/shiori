@@ -1,16 +1,18 @@
-// dropdown.js — dropdown behaviour the look in reader.css (its dropdowns, at its end) relies on.
+// dropdown.js — dropdown behaviour the look in reader.css (its dropdowns, at its end) relies on, for the
+// reader's one browser's own select: the top bar's page menu (page-nav.js). Every other list of the app,
+// reader settings' font among them, is the one page's Select.
 //
 // The list hangs straight off its box, so its side has to be settled before it opens: below,
-// unless only the space above can fit it. Delegated from the document, so dropdowns built later
-// (modals, generated rows) are covered too.
+// unless only the space above can fit it. Delegated from the document (the bar's select is drawn by the
+// route's frame, after this is started).
 //
 // A styled box is only as wide as its chosen option (a native one fits its widest), so a
 // free-standing box marked data-fit-widest is held at its widest option's width instead: it
 // doesn't jump between picks, and every option fits the list.
 
 // The selects the look is for: the reader's, in its top bar (reader.css holds its dropdowns' rules to
-// it; reader settings' font is the one page's Select). A page that draws the reader beside controls of
-// its own keeps its selects to itself, the reader shown or left.
+// it). A page that draws the reader beside controls of its own keeps its selects to itself, the reader
+// shown or left.
 const READER_SELECT = ':is(#topbar) select';
 const readerSelects = (more = '') => document.querySelectorAll(READER_SELECT + more);
 
