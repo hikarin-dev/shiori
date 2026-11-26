@@ -147,18 +147,19 @@ test('pointing at the bar grows it and shows the page number', { skip: !chromePa
     const pill = document.getElementById('scrubTip');
     return {
       track: document.getElementById('scrubTrack').getBoundingClientRect().height,
-      tip: tip?.dataset.n, opacity: getComputedStyle(pill).opacity, content: pill.textContent,
+      tip: tip?.dataset.n, shown: getComputedStyle(pill).getPropertyValue('--tip-shown'), content: pill.textContent,
     };
   });
   const zone = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bar-zone')));
   assert.ok(Math.abs(hovered.track - zone) < 0.5 && zone > rest, `the bar should grow from ${rest}px to ${zone}px, got ${hovered.track}px`);
-  assert.deepEqual({ tip: hovered.tip, opacity: hovered.opacity, content: hovered.content }, { tip: '23', opacity: '1', content: '23' });
+  assert.deepEqual({ tip: hovered.tip, shown: hovered.shown, content: hovered.content }, { tip: '23', shown: '1', content: '23' });
   assert.equal(await pillOverTip(page), true);
   await page.mouse.move(640, 300);
   await settle();
   assert.equal(await page.$eval('#scrubTrack', el => el.getBoundingClientRect().height), rest);
   assert.equal(await page.$('.scrub-segment.tip'), null);
-  assert.equal(await page.$eval('#scrubTip', el => getComputedStyle(el).opacity), '0');
+  assert.deepEqual(await page.$eval('#scrubTip', el => [getComputedStyle(el).getPropertyValue('--tip-shown'), getComputedStyle(el).color, getComputedStyle(el).backgroundColor]),
+    ['0', 'color(srgb 0 0 0 / 0)', 'color(srgb 0 0 0 / 0)'], 'gone: nothing of it drawn');
 });
 
 // How far the pill is from the page pointed at, in pages, two frames on (the glide has had a frame).

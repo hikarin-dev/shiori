@@ -27,6 +27,20 @@
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* What the reader's chrome eases, it eases on the page's own thread (rule 29 of the port's plan: an
+   animated transform or opacity is the compositor's, and while it runs the browser lifts what it
+   holds, and every positioned thing painted after it, onto layers of their own, where text is
+   smoothed another way): a slide by top or left, a fade by colours or by one of these numbers, each
+   the share of the thing shown (0 to 1), multiplied into its opacity or its colours. */
+@property --bar-shown { syntax: '<number>'; inherits: false; initial-value: 1; }
+@property --tip-shown { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --status-shown { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --top-shown { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --load-shown { syntax: '<number>'; inherits: false; initial-value: 1; }
+@property --sn-shown { syntax: '<number>'; inherits: false; initial-value: 1; }
+@property --zoom-shown { syntax: '<number>'; inherits: false; initial-value: 1; }
+@property --pn-turn { syntax: '<number>'; inherits: false; initial-value: 0; }
+
 /* The comic-lettering face the translation renderer typesets with, and the two source-text faces
    of study mode — bundled so the reader and the Settings preview draw the renderer's glyphs (a
    locally installed copy wins if present). Nothing downloads until a page uses one. */
@@ -157,7 +171,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
   height: var(--topbar-h);
   background: var(--card); border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 8px; padding: 0 20px;
-  transition: transform 0.2s ease;
+  transition: top 0.2s ease;
   /* Query container so the secondary-button fold (step 2 below) can be driven by the layout engine
      at a content-derived breakpoint, instead of a per-frame resize callback that lags mid-drag. */
   container: rbar / inline-size;
@@ -278,25 +292,25 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
 .seg.disabled { opacity: 0.3; pointer-events: none; }
 .seg-indicator {
   position: absolute; top: 0; left: 0; z-index: 0; width: 30px; height: 100%;
-  background: var(--primary); opacity: 0; transform: translateX(0);
-  transition: transform 0.22s cubic-bezier(.4, 0, .2, 1), opacity 0.18s ease;
+  background-color: transparent;
+  transition: left 0.22s cubic-bezier(.4, 0, .2, 1), background-color 0.18s ease;
   pointer-events: none;
 }
 /* When appearing/disappearing (translate ⇄ study can be all-off) only fade — never slide. */
-.seg-toggle.no-slide .seg-indicator { transition: opacity 0.18s ease; }
+.seg-toggle.no-slide .seg-indicator { transition: background-color 0.18s ease; }
 
-/* Translate ⇄ study: opacity follows the on/off state, position follows the last active side
-   (data-pos), so turning it off fades the indicator in place instead of sliding it back. */
+/* Translate ⇄ study: its colour follows the on/off state, its place the last active side (data-pos),
+   so turning it off fades the indicator in place instead of sliding it back. */
 #viewToggle[data-state="translate"] .seg-indicator,
-#viewToggle[data-state="study"]     .seg-indicator { opacity: 1; }
-#viewToggle[data-pos="translate"] .seg-indicator { transform: translateX(0); }
-#viewToggle[data-pos="study"]     .seg-indicator { transform: translateX(100%); }
+#viewToggle[data-state="study"]     .seg-indicator { background-color: var(--primary); }
+#viewToggle[data-pos="translate"] .seg-indicator { left: 0; }
+#viewToggle[data-pos="study"]     .seg-indicator { left: 30px; }
 
 /* Reading mode: always one of three; the indicator slides across the three squares. */
-.mode-seg .seg-indicator { opacity: 1; }
-.mode-seg[data-state="single"] .seg-indicator { transform: translateX(0); }
-.mode-seg[data-state="double"] .seg-indicator { transform: translateX(100%); }
-.mode-seg[data-state="strip"]  .seg-indicator { transform: translateX(200%); }
+.mode-seg .seg-indicator { background-color: var(--primary); }
+.mode-seg[data-state="single"] .seg-indicator { left: 0; }
+.mode-seg[data-state="double"] .seg-indicator { left: 30px; }
+.mode-seg[data-state="strip"]  .seg-indicator { left: 60px; }
 
 /* ── The narrow bar: 400px wide and under (the owner's design, A3, chosen 2026-11-26) ──
    One flat band across the whole top, edge to edge, as tall as the bar: Home (the logo), the page
@@ -694,7 +708,7 @@ body.study-bubbles-active #mainImg, body.study-bubbles-active .dImg { cursor: au
    an eased move restarted by every pointer move would trail behind it. */
 body.thumb-resizing #thumbStrip { transition: none; }
 body.thumb-resizing #thumbResizeHandle { transition: background 0.12s; }
-body.thumb-resizing #scrollTopBtn { transition: opacity 0.2s, background 0.12s, color 0.12s; }
+body.thumb-resizing #scrollTopBtn { transition: --top-shown 0.2s, background 0.12s, color 0.12s; }
 /* Pulled out of the progress bar, the strip is as tall as the drag has gone (_barReveal sets it);
    its resize handle shows once it's let go all the way out, and stays open. */
 body.thumb-revealing #thumbStrip { transition: none; }
@@ -778,11 +792,11 @@ body.thumb-dragging * {
   z-index: 201;   /* over the header: the side bars run the window's full height */
   zoom: var(--zoom-inv);
   touch-action: none;
-  transition: opacity 0.25s;
+  opacity: var(--bar-shown); transition: --bar-shown 0.25s;
   cursor: pointer;   /* pressed, the bar holds the pointer: this is the drag's cursor wherever it goes */
 }
 #bottombar.out { cursor: grabbing; }   /* dragged out into the thumbnails */
-#bottombar.hidden { opacity: 0; pointer-events: none; }
+#bottombar.hidden { --bar-shown: 0; pointer-events: none; }
 #scrubTrack {
   position: relative; flex: 1; min-width: 0;
   height: var(--botbar-h);
@@ -820,12 +834,13 @@ body.thumb-dragging * {
 #scrubTip {
   position: absolute; z-index: 2; left: var(--tip-at, 50%); bottom: 0; transform: translateX(-50%);
   padding: 0 6px; border-radius: 4px; line-height: 1.5;
-  background: var(--muted-foreground); color: var(--reader-background);
+  background: color-mix(in srgb, var(--muted-foreground) calc(var(--tip-shown) * 100%), transparent);
+  color: color-mix(in srgb, var(--reader-background) calc(var(--tip-shown) * 100%), transparent);
   font-size: 11px; font-weight: 600; white-space: nowrap;
-  opacity: 0; pointer-events: none;
-  transition: top 0.2s, bottom 0.2s, opacity 0.2s;
+  pointer-events: none;
+  transition: top 0.2s, bottom 0.2s, --tip-shown 0.2s;
 }
-#scrubTip.show { opacity: 1; bottom: 100%; }
+#scrubTip.show { --tip-shown: 1; bottom: 100%; }
 #scrubView { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .scrub-view {
   position: absolute; top: 0; bottom: 0;
@@ -859,7 +874,7 @@ body.thumb-dragging * {
 #bottombar[data-position="left"] #scrubTip,
 #bottombar[data-position="right"] #scrubTip {
   top: var(--tip-at, 50%); bottom: auto; transform: translateY(-50%);
-  transition: left 0.2s, right 0.2s, opacity 0.2s;
+  transition: left 0.2s, right 0.2s, --tip-shown 0.2s;
 }
 #bottombar[data-position="left"] #scrubTip { left: 0; }
 #bottombar[data-position="left"] #scrubTip.show { left: 100%; }
@@ -872,30 +887,36 @@ body.thumb-dragging * {
 
 /* ── The status line of a page's translation ── */
 .page-status {
-  position: fixed; left: 50%; bottom: 28px; z-index: 420; max-width: min(520px, calc(100vw - 32px));
-  padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--popover);
-  color: var(--foreground); font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
-  opacity: 0; pointer-events: none; transform: translate(-50%, 10px); transition: opacity .18s, transform .18s;
+  --line: var(--border);
+  position: fixed; left: 50%; bottom: 18px; z-index: 420; max-width: min(520px, calc(100vw - 32px));
+  padding: 8px 14px; border: 1px solid color-mix(in srgb, var(--line) calc(var(--status-shown) * 100%), transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--popover) calc(var(--status-shown) * 100%), transparent);
+  color: color-mix(in srgb, var(--foreground) calc(var(--status-shown) * 100%), transparent); font-size: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / calc(var(--status-shown) * 0.45));
+  pointer-events: none; transform: translateX(-50%); transition: --status-shown .18s, bottom .18s;
 }
-.page-status.show { opacity: 1; transform: translate(-50%, 0); }
-.page-status.error { border-color: var(--primary); }
+.page-status.show { --status-shown: 1; bottom: 28px; }
+.page-status.error { --line: var(--primary); }
+.page-status.busy { padding-left: 35px; }
 .page-status.busy::before {
-  content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 8px; vertical-align: -1px;
-  border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite;
+  content: ''; position: absolute; left: 14px; top: calc(50% - 6.5px); width: 9px; height: 9px;
+  border: 2px solid color-mix(in srgb, var(--border) calc(var(--status-shown) * 100%), transparent);
+  border-top-color: color-mix(in srgb, var(--primary) calc(var(--status-shown) * 100%), transparent);
+  border-radius: 50%; animation: spin .8s linear infinite;
 }
 
 /* Unpinned: the header is a fixed overlay and contributes no document height. reader.js reveals
-   it after the configured run of upward wheel events, then this transform supplies the slide. */
+   it after the configured run of upward wheel events, and it slides down by its top (its own height
+   above the window, then at its edge). */
 #topbarReveal {
   position: fixed; top: 0; left: 0; right: 0; z-index: 199;
   height: var(--topbar-h); pointer-events: none;
 }
 body.reader-unpinned #topbar {
-  position: fixed; top: 0; left: 0; right: 0; width: 100%;
-  transform: translateY(-100%);
+  position: fixed; top: calc(-1 * var(--topbar-h)); left: 0; right: 0; width: 100%;
 }
 body.reader-unpinned.reader-nav-hover #topbar,
-body.reader-unpinned.reader-nav-auto #topbar { transform: translateY(0); }
+body.reader-unpinned.reader-nav-auto #topbar { top: 0; }
 @media (hover: hover) {
   body.reader-unpinned #topbarReveal { pointer-events: auto; }
 }
@@ -913,12 +934,12 @@ html.reader-scroll, body.reader-scroll { height: auto; }
   width: var(--sn-size); height: var(--sn-size); border: 0; border-radius: 4px;
   background: var(--sn-panel); box-shadow: var(--sn-shadow); color: var(--muted-foreground); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.2s, background 0.12s, color 0.12s, bottom 0.2s ease;
+  opacity: var(--top-shown); pointer-events: none;
+  transition: --top-shown 0.2s, background 0.12s, color 0.12s, bottom 0.2s ease;
 }
 /* While the strip is pulled out of the progress bar, as far as it has come (--thumb-shown). */
-body.thumbs-open.thumb-revealing #scrollTopBtn { transition: opacity 0.2s, background 0.12s, color 0.12s; }
-#scrollTopBtn.visible { opacity: 1; pointer-events: all; }
+body.thumbs-open.thumb-revealing #scrollTopBtn { transition: --top-shown 0.2s, background 0.12s, color 0.12s; }
+#scrollTopBtn.visible { --top-shown: 1; pointer-events: all; }
 #scrollTopBtn:hover { background: var(--secondary); color: var(--foreground); }
 body.reader-side-nav #scrollTopBtn { display: none; }
 
@@ -927,9 +948,9 @@ body.reader-side-nav #scrollTopBtn { display: none; }
   position: fixed; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px; background: var(--reader-background); z-index: 300;
   /* Stay invisible for the first 400ms — a fast load comes and goes without a spinner flash. */
-  animation: loadingReveal 0.2s ease 0.4s backwards;
+  opacity: var(--load-shown); animation: loadingReveal 0.2s ease 0.4s backwards;
 }
-@keyframes loadingReveal { from { opacity: 0; } to { opacity: 1; } }
+@keyframes loadingReveal { from { --load-shown: 0; } to { --load-shown: 1; } }
 .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
 #loadingText { font-size: 11px; color: var(--muted-foreground); }
 
@@ -985,7 +1006,7 @@ body.thumbs-open.thumb-revealing { --sn-bottom: calc(var(--thumb-shown, 0px) * v
    phone's toolbar sliding in or out carries each along with its edge. */
 body.reader-side-nav #sideNav {
   display: block; position: relative; z-index: 210; height: 0; pointer-events: none;
-  transition: opacity 0.25s;
+  opacity: var(--sn-shown); transition: --sn-shown 0.25s;
 }
 /* What the panels are placed by, worked out on the panels themselves: values that follow the window
    (vw, dvh) on <body> would be inherited by every element of the page, all restyled on each step of a
@@ -1112,9 +1133,9 @@ html:is([data-sn-pos="left"], [data-sn-pos="right"])[data-sn-align="end"] #snRai
   display: flex; position: fixed; z-index: 210;
   right: calc(var(--sn-right) + var(--zoom-in)); bottom: calc(var(--sn-bottom) + 12px + var(--zoom-up));
   align-items: stretch; gap: 6px;
-  transition: opacity 0.25s, var(--sn-ease);
+  opacity: var(--zoom-shown); transition: --zoom-shown 0.25s, var(--sn-ease);
 }
-body:is(.thumb-revealing, .thumb-resizing) #sideZoom { transition: opacity 0.25s, var(--sn-ease-crowd); }
+body:is(.thumb-revealing, .thumb-resizing) #sideZoom { transition: --zoom-shown 0.25s, var(--sn-ease-crowd); }
 /* A change of place or navigation puts them there at once (reader.js). */
 html.sn-settling :is(#snChapter, #snRail, #sideZoom) { transition: none !important; }
 
@@ -1150,9 +1171,9 @@ html.sn-settling :is(#snChapter, #snRail, #sideZoom) { transition: none !importa
 }
 
 /* Hidden: nothing to see or press, until the pointer comes where they stand. */
-body.reader-side-hidden #sideNav { opacity: 0; }
+body.reader-side-hidden #sideNav { --sn-shown: 0; }
 body.reader-side-hidden :is(#snChapter, #snRail) { pointer-events: none; }
-body.reader-side-hidden #sideNav:is(:hover, :has(:focus-visible)), body.reader-side-hidden.sn-pop-open #sideNav { opacity: 1; }
+body.reader-side-hidden #sideNav:is(:hover, :has(:focus-visible)), body.reader-side-hidden.sn-pop-open #sideNav { --sn-shown: 1; }
 body.reader-side-hidden #sideNav:is(:hover, :has(:focus-visible)) :is(#snChapter, #snRail),
 body.reader-side-hidden.sn-pop-open :is(#snChapter, #snRail) { pointer-events: auto; }
 body.reader-side-nav.reader-side-hidden .sn-zone { display: block; }
@@ -1161,10 +1182,10 @@ body.reader-side-nav.reader-side-hidden .sn-zone { display: block; }
    the pointer is where they stand, or for as long as the navigation shows: the pointer on the modern
    one, or the classic header out. Each :has() asks about its own element or the siblings beside it,
    never body:has() (see the bar's edge, data-bar). */
-html.reader-controls-hidden #sideZoom { opacity: 0; pointer-events: none; }
+html.reader-controls-hidden #sideZoom { --zoom-shown: 0; pointer-events: none; }
 html.reader-controls-hidden body:is(.sn-pop-open, .reader-nav-hover, .reader-nav-auto) #sideZoom,
 html.reader-controls-hidden :is(#sideNav:hover, #sideNav:has(:focus-visible), #topbar:has(:focus-visible)) ~ #sideZoom,
-html.reader-controls-hidden #sideZoom:is(:hover, :has(:focus-visible), :has(~ #snZoneBottom:hover)) { opacity: 1; pointer-events: auto; }
+html.reader-controls-hidden #sideZoom:is(:hover, :has(:focus-visible), :has(~ #snZoneBottom:hover)) { --zoom-shown: 1; pointer-events: auto; }
 html.reader-controls-hidden #snZoneBottom { display: block; }
 /* The zones: the pill's corner, a band along the rail out to its edge, and zoom's corner. */
 .sn-zone { position: fixed; pointer-events: auto; }
@@ -1270,10 +1291,11 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     margin-inline-start: auto;
     background-color: var(--dd-caret);
     mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
-    transition: rotate .18s ease, background-color .12s ease;
+    rotate: calc(var(--pn-turn) * 180deg);
+    transition: --pn-turn .18s ease, background-color .12s ease;
   }
   :where(#topbar) select:is(:hover, :open)::picker-icon { background-color: var(--dd-muted); }
-  :where(#topbar) select:open::picker-icon { rotate: 180deg; }
+  :where(#topbar) select:open::picker-icon { --pn-turn: 1; }
 
   /* The list: exactly the box's width, overlapping its edge by the border so the two read as one
      outline, with a faint seam where they meet. It unrolls away from the box. At most eight
@@ -1295,15 +1317,14 @@ body.reader-side-nav.sn-pop-open #snChapters { display: flex; }
     box-shadow: 0 10px 24px rgb(0 0 0 / .35);
     scrollbar-color: var(--scrollbar-inner-thumb) transparent;
     scrollbar-width: thin;
-    opacity: 0;
     clip-path: inset(0 -24px 100% -24px);
-    transition: clip-path .18s ease-out, opacity .12s ease-out, display .18s allow-discrete, overlay .18s allow-discrete;
+    transition: clip-path .18s ease-out, display .18s allow-discrete, overlay .18s allow-discrete;
   }
-  :where(#topbar) select:open::picker(select) { opacity: 1; clip-path: inset(0 -24px -24px -24px); }
+  :where(#topbar) select:open::picker(select) { clip-path: inset(0 -24px -24px -24px); }
   :where(#topbar) select:has(.dd-options)::picker(select) { overflow: hidden; }
   :where(#topbar) .dd-options { max-height: calc(8 * (1lh + 12px)); overflow-y: auto; }
   @starting-style {
-    :where(#topbar) select:open::picker(select) { opacity: 0; clip-path: inset(0 -24px 100% -24px); }
+    :where(#topbar) select:open::picker(select) { clip-path: inset(0 -24px 100% -24px); }
   }
 
   :where(#topbar) select.opens-up::picker(select) {
