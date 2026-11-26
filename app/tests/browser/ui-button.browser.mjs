@@ -78,7 +78,7 @@ test('at rest a button is the text colour; the header\'s icon buttons have no fr
   }
   // A tone at rest where the colour says something: download, delete; translated, in the colour of success.
   assert.equal((await look(spec('card-btn', 'quiet-warning-fill'))).text, YELLOW, 'download: its yellow');
-  assert.equal((await look(spec('card-btn', 'quiet-danger-fill'))).text, 'rgb(255, 100, 103)', 'delete: its red');
+  assert.equal((await look(spec('card-btn', 'quiet-danger-fill'))).text, 'rgb(255, 90, 54)', 'delete: its red');
   assert.equal((await look(spec('card-btn', 'quiet', 'on'))).text, 'rgb(6, 214, 160)', 'translated: the colour of success');
   // The header's buttons: no frame at rest or under the pointer, the raised ground under it; on, the
   // pressed tone's words on its tint, still no frame.
@@ -106,14 +106,16 @@ test('at rest a button is the text colour; the header\'s icon buttons have no fr
 
 // §5.3 F61 (the owner, 2026-11-25: "try switch my danger color profile to the destructive color of
 // shadcn"; then "the font color needs to match the danger shadcn too", "make it always filled by
-// default, never outline"): danger is shadcn's destructive on its dark theme (oklch(0.704 0.191
-// 22.216), as sRGB), and the danger button is shadcn's destructive button of this project's style: the
+// default, never outline"): the danger button is shadcn's destructive button of this project's style: the
 // colour's own words on its 20% ground, 30% under the pointer, no line; there is no outlined danger.
-test('danger is shadcn\'s destructive: the button filled with its 20% under its own words, no line, never an outline', async (t) => {
+// The colour itself (the owner, 2026-11-26: 1.3's red "was a bit closer to the accent color, while the
+// current one looks a little muted relative to the background color"): #ff5a36, a scarlet as strong as
+// 1.3's #ff4040 and as far from the brand's colour as shadcn's #ff6467 was.
+test('danger is shadcn\'s destructive button in the app\'s own red: filled with its 20% under its own words, no line, never an outline', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;
   const look = (sel) => page.$eval(sel, (el) => { const cs = getComputedStyle(el); return [cs.backgroundColor, cs.borderTopColor, cs.color]; });
-  const RED = 'rgb(255, 100, 103)', FILL = 'rgba(255, 100, 103, 0.2)', DEEPER = 'rgba(255, 100, 103, 0.3)', NONE = 'rgba(0, 0, 0, 0)';
+  const RED = 'rgb(255, 90, 54)', FILL = 'rgba(255, 90, 54, 0.2)', DEEPER = 'rgba(255, 90, 54, 0.3)', NONE = 'rgba(0, 0, 0, 0)';
   // Every danger button, filled at rest and a step deeper under the pointer: a dialog's, Settings'
   // (Clear All; Reset and its small form, once an outline each), Tasks' Stop all.
   for (const [shape, variant] of [['btn', 'danger'], ['btn-clear-all', 'danger'], ['btn-clear-key', 'danger'], ['btn-clear-key', 'danger-sm'], ['btn-stop-all', 'danger']]) {
@@ -129,7 +131,7 @@ test('danger is shadcn\'s destructive: the button filled with its 20% under its 
     assert.deepEqual(await look(spec(shape, variant, 'hover')), [FILL, NONE, RED], `${shape} ${variant} under the pointer`);
   }
   // No outlined danger is left on the page of specimens: nothing framed in the colour on a clear ground.
-  const outlined = await page.$$eval('[data-slot="button"]', (els) => els.filter((el) => { const cs = getComputedStyle(el); return cs.borderTopColor === 'rgb(255, 100, 103)' && cs.backgroundColor === 'rgba(0, 0, 0, 0)'; }).map((el) => el.textContent.trim() || el.getAttribute('aria-label')));
+  const outlined = await page.$$eval('[data-slot="button"]', (els) => els.filter((el) => { const cs = getComputedStyle(el); return cs.borderTopColor === 'rgb(255, 90, 54)' && cs.backgroundColor === 'rgba(0, 0, 0, 0)'; }).map((el) => el.textContent.trim() || el.getAttribute('aria-label')));
   assert.deepEqual(outlined, [], 'no outlined danger button');
   // The other tones fill with the tone itself.
   assert.equal((await look(spec('card-btn', 'quiet-warning-fill', 'hover')))[0], 'rgb(255, 209, 102)', 'download: its yellow, whole');

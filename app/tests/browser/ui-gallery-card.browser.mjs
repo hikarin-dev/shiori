@@ -119,7 +119,7 @@ test('what each part of a card shows, for the fixture\'s galleries', async (t) =
     assert.deepEqual(Object.fromEntries(Object.keys(want).map((k) => [k, got[k]])), want, variant);
   }
   // The missing mark in the danger colour; the local id in the second accent; the brand's red id.
-  assert.equal(await page.$eval(`${card('missing')} .card-missing`, (e) => getComputedStyle(e).color), 'rgb(255, 100, 103)');
+  assert.equal(await page.$eval(`${card('missing')} .card-missing`, (e) => getComputedStyle(e).color), 'rgb(255, 90, 54)');
   assert.equal(await page.$eval(`${card('local')} .card-id`, (e) => getComputedStyle(e).color), 'rgb(255, 209, 102)');
   assert.equal(await page.$eval(`${card('plain')} .card-id`, (e) => getComputedStyle(e).color), 'rgb(237, 39, 84)');
   // The buttons' words (download, or Replace with nothing to download from).

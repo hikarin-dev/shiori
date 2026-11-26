@@ -60,13 +60,13 @@ test('hovers in each tone; with Shift held, the removal preview; nothing moves',
   assert.deepEqual(pick(await look(page, spec('card-tag', 'add', 'hover'))).slice(1), ['rgb(255, 209, 102)', 'rgb(255, 209, 102)']);
   assert.deepEqual(pick(await look(page, spec('ov-chip', 'neutral', 'hover'))), ['rgb(28, 28, 33)', 'rgb(161, 161, 170)', 'rgb(244, 244, 245)']);
   // Shift held (the page's shift-held), under the pointer.
-  assert.deepEqual(pick(await look(page, spec('card-tag', 'removing', 'hover'))), ['rgba(255, 100, 103, 0.2)', 'rgb(255, 100, 103)', 'rgb(255, 100, 103)']);
-  assert.deepEqual(pick(await look(page, spec('ov-chip', 'removing', 'hover'))), ['rgba(255, 100, 103, 0.2)', 'rgb(255, 100, 103)', 'rgb(255, 100, 103)']);
+  assert.deepEqual(pick(await look(page, spec('card-tag', 'removing', 'hover'))), ['rgba(255, 90, 54, 0.2)', 'rgb(255, 90, 54)', 'rgb(255, 90, 54)']);
+  assert.deepEqual(pick(await look(page, spec('ov-chip', 'removing', 'hover'))), ['rgba(255, 90, 54, 0.2)', 'rgb(255, 90, 54)', 'rgb(255, 90, 54)']);
   assert.deepEqual(await page.$eval(spec('ov-chip', 'removing', 'hover'), (el) => { const s = getComputedStyle(el.querySelector('[data-slot="tag-count"]')); return [s.color, s.borderLeftColor]; }),
-    ['rgb(255, 100, 103)', 'rgba(255, 100, 103, 0.5)'], 'the count in the tag\'s colour, its divider half of it');
+    ['rgb(255, 90, 54)', 'rgba(255, 90, 54, 0.5)'], 'the count in the tag\'s colour, its divider half of it');
   assert.deepEqual(await page.$eval(spec('ov-chip', 'neutral', 'hover'), (el) => { const s = getComputedStyle(el.querySelector('[data-slot="tag-count"]')); return [s.color, s.borderLeftColor]; }),
     ['rgb(161, 161, 170)', 'rgb(161, 161, 170)'], 'Shift not held: the count muted, its divider the frame\'s colour');
-  assert.deepEqual(pick(await look(page, spec('ov-meta-item', 'removing', 'hover'))).slice(1), ['rgb(255, 100, 103)', 'rgb(255, 100, 103)']);
+  assert.deepEqual(pick(await look(page, spec('ov-meta-item', 'removing', 'hover'))).slice(1), ['rgb(255, 90, 54)', 'rgb(255, 90, 54)']);
   // "+" previews nothing (it adds).
   assert.equal((await look(page, spec('card-tag', 'add', 'hover'))).ground, 'rgb(28, 28, 33)');
   // The hover's box is the rest's.
