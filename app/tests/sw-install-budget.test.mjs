@@ -19,7 +19,9 @@ const sw = readFileSync(join(repo, 'sw.js'), 'utf8');
 // built site it keeps. Asking for the built site throws, saying so, when there is none or a source
 // changed since (npm run build).
 const { SHELL: shell } = await import(pathToFileURL(join(builtSite(), 'shell-files.js')).href);
-const isCode = (u) => /\.(js|html|css|webmanifest)$/.test(u);
+const isCode = (u) => /\.(m?js|html|css|webmanifest)$/.test(u);
+const onFirstUse = (u) => u.startsWith('vendor/pdfjs/') || u === 'vendor/marked.min.js';
+const installed = (u) => isCode(u) && !onFirstUse(u);
 // Sizes as served: the built site's.
 const bytes = (files, site = builtSite()) => files.reduce((n, f) => n + (existsSync(join(site, f)) ? statSync(join(site, f)).size : 0), 0);
 
@@ -28,14 +30,16 @@ const bytes = (files, site = builtSite()) => files.reduce((n, f) => n + (existsS
 // 4 MB while the UI is ported to the one page (from 2026-11-23): until then the built site carries both UIs — the pages
 // not ported yet with their scripts, and the new bundle — so the code installed first is larger than either alone.
 // Nothing is released in that state; each ported page deletes its old scripts in the same step, and at the cutover the
-// budget goes back to 3.25 MB or lower (the figure measured then, plus headroom).
-const BOOT_BUDGET = 4 * 1024 * 1024;
+// budget goes back to 3.25 MB or lower (the figure measured then, plus headroom). Back at 3.25 MB at the cutover (9b,
+// 2026-11-27): about 3.0 MB then (the served modules copied without their comments, every language installed).
+const BOOT_BUDGET = 3.25 * 1024 * 1024;
 
 test('install blocks on code only, within a sane byte budget', () => {
   // The split the sizes below are taken by is the worker's own.
-  assert.match(sw, /const isCode = \(u\) => \/\\\.\(js\|html\|css\|webmanifest\)\$\/\.test\(u\);/);
-  assert.match(sw, /const BOOT = SHELL\.filter\(isCode\);\r?\nconst DEFERRED = SHELL\.filter\(\(u\) => !isCode\(u\)\);/);
-  const boot = shell.filter(isCode);
+  assert.ok(sw.includes('const isCode = (u) => /\\.(m?js|html|css|webmanifest)$/.test(u);'), 'the worker\'s test of code');
+  assert.ok(sw.includes("const onFirstUse = (u) => u.startsWith('vendor/pdfjs/') || u === 'vendor/marked.min.js';"), 'the worker\'s code fetched on first use');
+  assert.match(sw, /const BOOT = SHELL\.filter\(\(u\) => isCode\(u\) && !onFirstUse\(u\)\);\r?\nconst DEFERRED = SHELL\.filter\(\(u\) => !BOOT\.includes\(u\)\);/);
+  const boot = shell.filter(installed);
   const size = bytes(boot);
   assert.ok(size <= BOOT_BUDGET,
     `install would block on ${(size / 1024 / 1024).toFixed(2)} MB; keep it under ${BOOT_BUDGET / 1024 / 1024} MB`);
@@ -47,8 +51,8 @@ test('the heavy assets are deferred, not awaited during install', () => {
   assert.match(install, /await Promise\.all\(BOOT\.map/, 'install should await the BOOT set');
   assert.doesNotMatch(install, /DEFERRED/, 'install must not touch the deferred assets');
 
-  const deferred = shell.filter((u) => !isCode(u));
-  assert.ok(bytes(deferred) > bytes(shell.filter(isCode)),
+  const deferred = shell.filter((u) => !installed(u));
+  assert.ok(bytes(deferred) > bytes(shell.filter(installed)),
     'sanity: the deferred set is the heavy one');
 });
 
@@ -72,8 +76,8 @@ test('a first visit is not held behind the worker install at all', () => {
 });
 
 test('every shell entry is classified as exactly one of boot or deferred', () => {
-  const boot = shell.filter(isCode);
-  const deferred = shell.filter((u) => !isCode(u));
+  const boot = shell.filter(installed);
+  const deferred = shell.filter((u) => !installed(u));
   assert.equal(boot.length + deferred.length, shell.length);
   assert.equal(boot.filter((f) => deferred.includes(f)).length, 0);
 });

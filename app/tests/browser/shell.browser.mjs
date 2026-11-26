@@ -207,6 +207,76 @@ test('with the worker installed and the server gone, the library and the one pag
   assert.deepEqual(page.problems.filter((problem) => /policy/.test(problem)), [], 'nothing refused by the page\'s policy');
 });
 
+// Straight after the install, before the worker has fetched what comes later (the fonts, flags, icons and
+// the code fetched on first use: sw.js, DEFERRED): every page opens with the server gone, in the person's
+// language, and another language can be chosen. The test's server refuses everything the worker keeps for
+// later (a front of its own before the built site's server), so nothing of it is there when the server goes.
+const isCode = (u) => /\.(m?js|html|css|webmanifest)$/.test(u);
+const onFirstUse = (u) => u.startsWith('vendor/pdfjs/') || u === 'vendor/marked.min.js';
+const BOOT = SHELL.filter((u) => isCode(u) && !onFirstUse(u));
+test('straight after the install, the later part not fetched yet, every page opens with the server gone, in the person\'s language', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const http = await import('node:http');
+  const site = await startServer();
+  const later = new Set(SHELL.filter((f) => !BOOT.includes(f)).map((f) => `/${f}`));
+  const front = http.createServer((req, res) => {
+    if (later.has(new URL(req.url, 'http://x').pathname)) { res.writeHead(404).end(); return; }
+    const ask = http.request({ host: '127.0.0.1', port: site.port, path: req.url, method: req.method, headers: req.headers }, (answer) => {
+      res.writeHead(answer.statusCode, answer.headers);
+      answer.pipe(res);
+    });
+    ask.on('error', () => res.writeHead(502).end());
+    req.pipe(ask);
+  });
+  await new Promise((r) => front.listen(0, '127.0.0.1', r));
+  const at = `http://127.0.0.1:${front.address().port}`;
+  t.after(() => { front.close(); site.server.close(); });
+  const page = await fresh(t, { site: at });
+  await page.evaluateOnNewDocument(() => { try { if (!localStorage.getItem('shiori-lang')) localStorage.setItem('shiori-lang', 'ja'); } catch {} });
+  await page.goto(`${at}/tasks`, { waitUntil: 'load' });
+  await until(page, async (count) => {
+    if (!navigator.serviceWorker.controller) return false;
+    const name = (await caches.keys()).find((key) => key.includes('-shell-v'));
+    return !!name && (await (await caches.open(name)).keys()).length >= count;
+  }, BOOT.length, { what: 'the worker in charge, holding what it installs', timeout: 60000 });
+  const held = await page.evaluate(async () => {
+    const name = (await caches.keys()).find((key) => key.includes('-shell-v'));
+    return (await (await caches.open(name)).keys()).map((r) => new URL(r.url).pathname);
+  });
+  assert.deepEqual(held.filter((p) => later.has(p)), [], 'nothing of the later part');
+  const gid = '1790000000902';
+  await page.evaluate(async (gid) => {
+    const api = await import('/app/js/api.js');
+    const c = new OffscreenCanvas(300, 430);
+    c.getContext('2d').fillRect(0, 0, 300, 430);
+    await api.meta.put({ galleryId: gid, title: { english: 'Offline', japanese: '', pretty: '' }, tags: [], numPages: 2 });
+    for (const n of [1, 2]) await api.pages.put(gid, n, await c.convertToBlob({ type: 'image/png' }));
+  }, gid);
+
+  front.close(); front.closeAllConnections();
+  site.server.close(); site.server.closeAllConnections();
+  const { LOCALES } = await import('../../js/locales.js');
+  const words = () => page.evaluate(async () => { const i18n = await import('/app/js/i18n.js'); return { lang: i18n.getLang(), cancel: i18n.t('common.cancel') }; });
+  for (const [path, drawnThere] of [
+    ['/', () => document.title === 'Shiori — Library' && !!document.querySelector('#grid .card')],
+    [`/overview?g=${gid}`, () => !!document.querySelector('#ovContent .ov-hero')],
+    [`/reader?g=${gid}&page=1`, () => [...document.querySelectorAll('#stripView img[src], #mainImg, .dImg')].some((img) => img.naturalWidth > 0) && getComputedStyle(document.getElementById('loadingScreen')).display === 'none'],
+    ['/settings', () => document.title === 'Shiori — Settings' && !!document.getElementById('clearAllBtn')],
+    ['/tasks', () => document.title === 'Shiori — Tasks' && !document.getElementById('tkEmpty').hidden],
+  ]) {
+    page.problems.length = 0;
+    await page.goto(`${at}${path}`, { waitUntil: 'load' });
+    await until(page, drawnThere, undefined, { what: `${path}, offline straight after the install` });
+    assert.deepEqual(await words(), { lang: 'ja', cancel: LOCALES.ja['common.cancel'] }, `${path}: in Japanese`);
+    // (The fonts and the like are the later part's: asked for, not there.)
+    assert.deepEqual(page.problems.filter((p) => !/Failed to load resource|status of 504/.test(p)), [], `${path}: nothing else went wrong`);
+  }
+  // Another language, offline.
+  await page.evaluate(async () => (await import('/app/js/i18n.js')).setLang('de'));
+  await until(page, () => document.getElementById('tkEmpty')?.textContent?.length > 0 && document.documentElement.lang === 'de', undefined, { what: 'German, offline' });
+  assert.equal(await page.evaluate(() => document.getElementById('tkEmpty').textContent), LOCALES.de['tasks.empty']);
+});
+
 test('the comparison page, not installed, opens with the network and is kept from then on', async (t) => {
   const page = await fresh(t);
   if (!page) return;

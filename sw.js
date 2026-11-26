@@ -51,12 +51,16 @@ function isStaleShellCache(key, current) {
 
 // What must be cached before the worker takes over, versus what can arrive later. The first
 // visit waits on this install (index.html holds the loading screen until the worker is ready),
-// so only the code the app is built from blocks it — about 1 MB of JS/HTML/CSS. The rest is
-// ~9 MB of fonts, flags and icons, nearly all of it two study-mode typefaces most sessions
+// so only the code the app is built from blocks it — about 3 MB of JS/HTML/CSS. The rest is
+// ~11 MB of fonts, flags and icons, nearly all of it two study-mode typefaces most sessions
 // never open; making the first paint wait for those is what left visitors on a blank screen.
-const isCode = (u) => /\.(js|html|css|webmanifest)$/.test(u);
-const BOOT = SHELL.filter(isCode);
-const DEFERRED = SHELL.filter((u) => !isCode(u));
+// Code a page asks for only when it is first used comes later too: the PDF reader (vendor/pdfjs,
+// at a PDF's import) and the changelog's renderer (vendor/marked.min.js, with CHANGELOG.md itself,
+// in the About dialog).
+const isCode = (u) => /\.(m?js|html|css|webmanifest)$/.test(u);
+const onFirstUse = (u) => u.startsWith('vendor/pdfjs/') || u === 'vendor/marked.min.js';
+const BOOT = SHELL.filter((u) => isCode(u) && !onFirstUse(u));
+const DEFERRED = SHELL.filter((u) => !BOOT.includes(u));
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {

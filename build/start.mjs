@@ -86,6 +86,17 @@ export function startData({ bundle = null, routes, root = ROOT }) {
     const files = closure([chunk.fileName], chunks, root);
     const styles = [...new Set(files.flatMap((file) => [...(chunks[file]?.viteMetadata?.importedCss ?? [])]))];
     data.routes[segment].preload = [...files, ...styles, ...(route.sheets ?? [])].filter((file) => !started.has(file));
+    // What it may ask for later (its parts, each fetched the first time it is used): the bundle's files
+    // its chunk reaches by import() and theirs, with their stylesheets.
+    const reached = new Set(), queue = [chunk.fileName];
+    while (queue.length) {
+      const file = queue.pop();
+      if (reached.has(file) || !chunks[file]) continue;
+      reached.add(file);
+      queue.push(...chunks[file].imports, ...chunks[file].dynamicImports.map((id) => resolve(file, id)));
+    }
+    const later = [...reached].flatMap((file) => [file, ...(chunks[file].viteMetadata?.importedCss ?? [])]);
+    data.routes[segment].later = [...new Set(later)].filter((file) => !started.has(file) && !data.routes[segment].preload.includes(file));
   }
   return data;
 }
@@ -100,14 +111,17 @@ export function routeChunk(chunks, segment, route, root = ROOT) {
 
 // The bundle's files that only routes the worker doesn't install draw with (`installed` false in the
 // route table): what each such route preloads, less what the start-up or an installed route needs
-// too. A served module is never among them: those are the app's files, kept whoever imports them.
-// From start.js's data, so the built site says it by itself (the tests read it there).
-/** @param {{ entry: unknown, start: string[], routes: Record<string, { preload: string[] }> }} data @param {Record<string, { installed: boolean }>} routes */
+// too, as it draws or later (a part of it fetched on first use: the reader's settings share a chunk
+// with the comparison page's specimens). A served module is never among them: those are the app's
+// files, kept whoever imports them. From start.js's data, so the built site says it by itself (the
+// tests read it there).
+/** @param {{ entry: unknown, start: string[], routes: Record<string, { preload: string[], later?: string[] }> }} data @param {Record<string, { installed: boolean }>} routes */
 export function notInstalled(data, routes) {
   const needed = new Set([String(data.entry), ...data.start]);
   const left = new Set();
   for (const [segment, route] of Object.entries(routes)) {
     for (const file of data.routes[segment].preload) (route.installed ? needed : left).add(file);
+    if (route.installed) for (const file of data.routes[segment].later ?? []) needed.add(file);
   }
   return [...left].filter((file) => file.startsWith('assets/') && !needed.has(file)).sort();
 }
