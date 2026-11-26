@@ -13,6 +13,7 @@ import { APP_PAGE, movedTo, pageFile } from '../app/js/pages.js';
 import { ROUTES } from '../src/routes.ts';
 import { writeShell } from './shell.mjs';
 import { notInstalled, routeChunk, startData, startScript } from './start.mjs';
+import { copyServed } from './served-copy.mjs';
 
 export const ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -108,9 +109,12 @@ export function routeDependencies(filename: string, deps: string[]) {
 }
 
 // What the built site carries besides the bundle: the same files, at the same places, each with the
-// date it has here (so a host's "changed since?" answer follows the file, not the build).
+// date it has here (so a host's "changed since?" answer follows the file, not the build). The app's
+// served modules (app/js) without their comments, each line where it is (build/served-copy.mjs): about
+// a quarter of their bytes, which every visitor fetched and the worker installed.
 const COPIED = ['app', 'icons', 'vendor', 'sw.js', '404.html', 'CHANGELOG.md'];
 const NOT_COPIED = new Set([path.join(ROOT, 'app', 'tests')]);
+const SERVED_MODULES = path.join(ROOT, 'app', 'js');
 
 // Once the bundle is written: the copies beside it, then what the service worker keeps of it all
 // (shell.mjs: shell-files.js, with the id every file counts in, and the same id at the end of the
@@ -130,6 +134,9 @@ export function siteFiles(): Plugin {
           preserveTimestamps: true,
           filter: (src) => !NOT_COPIED.has(src),
         });
+      }
+      for (const file of fs.readdirSync(SERVED_MODULES, { recursive: true }) as string[]) {
+        if (file.endsWith('.js')) copyServed(path.join(SERVED_MODULES, file), path.join(outDir, 'app', 'js', file));
       }
       writeShell(outDir, fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8'), leftOut);
     },

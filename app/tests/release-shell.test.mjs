@@ -11,6 +11,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { builtSite } from '../../build/built.mjs';
 import { notInstalled } from '../../build/start.mjs';
+import { withoutComments } from '../../build/served-copy.mjs';
 import { ROUTES } from '../../src/routes.ts';
 import { APP_PAGE, MOVED, PAGES } from '../js/pages.js';
 
@@ -83,12 +84,16 @@ test('what the worker leaves out is the bundle\'s files only routes it doesn\'t 
   }
 });
 
-test('the built site carries every app/js and vendor file as the file it is', () => {
+test('the built site carries every app/js and vendor file at its place, the app\'s modules without their comments', () => {
   // The bundle imports these by address and carries no copy; the worker, the desktop app and the
-  // pages that have a file of their own load them from the same addresses.
+  // pages that have a file of their own load them from the same addresses. The app's own modules
+  // (app/js/**/*.js) without their comments, every line where it is (build/served-copy.mjs,
+  // served-copy.test.mjs); everything else the same bytes.
+  const served = (f) => /^app\/js\/.*\.js$/.test(f);
   const changed = [...filesUnder('app/js'), ...filesUnder('vendor')]
-    .filter((f) => !existsSync(built(f)) || !readFileSync(join(repo, f)).equals(readFileSync(built(f))));
-  assert.deepEqual(changed, [], 'missing from the built site, or not the same bytes');
+    .filter((f) => !existsSync(built(f)) || (served(f) ? withoutComments(f, readFileSync(join(repo, f), 'utf8')) !== readFileSync(built(f), 'utf8')
+      : !readFileSync(join(repo, f)).equals(readFileSync(built(f)))));
+  assert.deepEqual(changed, [], 'missing from the built site, or not what the build makes of it');
   // A bundle chunk sits in assets/, one folder under the site's root: what it imports from above
   // is one of those files.
   const assets = filesUnder('assets', builtSite()).filter((f) => f.endsWith('.js'));
