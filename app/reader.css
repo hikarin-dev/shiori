@@ -191,7 +191,7 @@ body.page-divider #doubleView.active { min-height: 0 !important; }
 .tb-btn {
   background: none; border: 1px solid var(--border); color: var(--muted-foreground);
   font-family: inherit; font-size: 13px; width: 30px; height: 30px; padding: 0;
-  border-radius: 6px; cursor: pointer; transition: all 0.12s;
+  border-radius: 6px; cursor: pointer; transition: background-color 0.12s, border-color 0.12s, color 0.12s;
   text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
 }
 .tb-btn:hover  { border-color: var(--primary); color: var(--primary); }
@@ -297,6 +297,90 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
 .mode-seg[data-state="single"] .seg-indicator { transform: translateX(0); }
 .mode-seg[data-state="double"] .seg-indicator { transform: translateX(100%); }
 .mode-seg[data-state="strip"]  .seg-indicator { transform: translateX(200%); }
+
+/* ── The narrow bar: 400px wide and under (the owner's design, A3, chosen 2026-11-26) ──
+   One flat band across the whole top, edge to edge, as tall as the bar: Home (the logo), the page
+   number as plain text, then at most three buttons and "⋯", each 44px (a finger's, with a mouse too)
+   with nothing round it, its icon white, only what is switched on in the accent. The three are the
+   first of Translate, Study, Thumbnails, Auto-scroll and Reader settings that the gallery has (which
+   it has, and what moves between the bar and the list, is reader.js's: _placeNarrowBar); the rest
+   are rows of the "⋯" list under the bar, which the gallery's number and title head (a press opens
+   where the gallery came from, as the title does), then the reading mode with its three choices side
+   by side, Pin header, the keys (with a mouse; a touch screen has none) and the page menu's other
+   pages under "Go to" (the menu itself leaves the bar). Reader settings is drawn as sliders here (bar
+   and list), so the list holds one gear, the app's Settings. When it does not fit, the page number
+   gives (it ellipsizes), never a button. Wider than 400px the bar is as it was, and nothing of this
+   applies. */
+#topbar .tb-narrow-icon, #topbar .tb-go { display: none; }
+#topbar .tb-rows { display: contents; }
+@media (max-width: 400px) {
+  #topbar { gap: 0; padding: 0 calc(8px + var(--page-scrollbar-gap)) 0 8px; }
+  #topbar :is(.brand-sep, #pageNav) { display: none; }
+  #topbar .brand-wrap { order: -2; justify-content: center; width: 44px; height: 44px; border-radius: 6px; }
+  #topbar #pageCounter {
+    order: -1; flex-shrink: 1; min-width: 0; margin-left: 4px;
+    overflow: hidden; text-overflow: ellipsis; text-align: left; font-size: 12px;
+  }
+  /* The buttons: the translate ⇄ study switch's two sides are buttons of the bar's own (no pill, no
+     sliding mark); a side the gallery hasn't is left off. */
+  #topbar #viewToggle { display: contents; }
+  #topbar :is(#viewToggle, #modeToggle) .seg-indicator,
+  #topbar #viewToggle > :is([data-missing], .disabled) { display: none; }
+  #topbar :is(.tb-btn, .seg) {
+    width: 44px; height: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--foreground);
+    transition: background-color 0.12s, color 0.12s;
+  }
+  #topbar :is(.tb-btn, .seg) svg { width: 20px; height: 20px; stroke-width: 1.8; }
+  #topbar :is(.tb-btn, .seg):hover { background: var(--secondary); color: var(--foreground); }
+  /* On, it keeps its look under the pointer (nothing darker, nothing lost there). */
+  #topbar :is(.tb-btn.active, .seg.active):is(*, :hover) { background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); }
+  #readerSettingsBtn > svg:not(.tb-narrow-icon) { display: none; }
+  #topbar #readerSettingsBtn > .tb-narrow-icon { display: block; }
+  #topbar #tbMenuBtn { display: inline-flex; }
+  #topbar.menu-open #tbMenuBtn { background: var(--secondary); color: var(--foreground); }
+
+  /* The "⋯" list: a panel under the bar at its right, inside the window at every width; its rows
+     scroll in a box of their own (.tb-rows) that ends where the panel's corners begin to curve, so
+     a scrollbar keeps to the straight part of its side (the 6px above and below the rows are the
+     panel's). */
+  #topbar .tb-extra { display: none; }
+  #topbar.menu-open .tb-extra {
+    display: flex; flex-direction: column; align-items: stretch; gap: 0;
+    position: absolute; z-index: 220; top: calc(var(--topbar-h) + 6px); right: calc(8px + var(--page-scrollbar-gap));
+    width: min(272px, calc(100vw - var(--page-scrollbar-width) - 16px)); max-height: calc(100dvh - var(--topbar-h) - 14px);
+    padding: 6px 0; background: var(--popover); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+  #topbar .tb-rows { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* A row: an icon and its name (the button's own: its tip, or for the play button its label, which
+     says Stop while it plays), 44px at the least; a name too long for the list takes a second line. */
+  #topbar .tb-rows > :is(.tb-btn, .tb-meta, .mode-seg), #topbar .tb-go > .tb-row {
+    display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex: none;
+    width: 100%; height: auto; min-height: 44px; padding: 0 14px; margin: 0;
+    border: 0; border-radius: 0; background: transparent; color: var(--foreground);
+    font: inherit; font-size: 13px; line-height: 1.3; text-align: left; text-decoration: none; overflow-wrap: anywhere;
+  }
+  #topbar .tb-rows > .tb-btn::after { content: attr(data-tip); min-width: 0; }
+  #topbar .tb-rows > #autoBtn::after { content: attr(aria-label); }
+  #topbar .tb-rows svg { flex: none; width: 18px; height: 18px; stroke-width: 1.8; }
+  #topbar .tb-rows > .tb-btn:hover, #topbar .tb-go > .tb-row:hover { background: var(--secondary); }
+  #topbar .tb-rows > .tb-btn.active:is(*, :hover) { background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); }
+  /* The gallery's number and title, a rule under them (here, where the bar hides them at 420px). */
+  #topbar .tb-rows > #tbMeta { display: flex; }
+  #topbar .tb-rows > .tb-meta { gap: 8px; margin-bottom: 6px; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; overflow-wrap: normal; }
+  /* The reading mode: its name, its three choices at the row's end. */
+  #topbar .tb-rows > #modeToggle { gap: 0; height: auto; padding-right: 4px; overflow: visible; }
+  #topbar .tb-rows > #modeToggle::before { content: attr(aria-label); flex: 1; min-width: 0; }
+  #topbar .tb-rows > #modeToggle .seg { flex: none; }
+  #topbar .tb-rows > #modeToggle .seg:not(.active) { color: var(--foreground); }
+  /* Go to: the page menu's other pages, under a rule and their heading. */
+  #topbar .tb-go { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+  #topbar .tb-go::before { content: attr(aria-label); display: block; padding: 4px 14px 2px; font-size: 11px; color: var(--muted-foreground); }
+  #topbar .tb-go > .tb-row[hidden] { display: none; }
+}
+@media (max-width: 400px) and (pointer: coarse) {
+  #topbar .tb-rows > #keybindBtn { display: none; }
+}
 
 /* The pages, the ground around them and the reader's chrome are never selected: a double-click (which
    hides the controls) would otherwise reach for the nearest text around the pointer and paint every

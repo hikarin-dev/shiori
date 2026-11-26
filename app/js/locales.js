@@ -7979,21 +7979,21 @@ const tasksCopy = {
 };
 for (const [lang, strings] of Object.entries(tasksCopy)) Object.assign(LOCALES[lang], strings);
 
-// The header's page menu (page-nav.js): the pages it names besides Library, Settings and Tasks, and
-// its name for screen readers.
+// The header's page menu (page-nav.js): the pages it names besides Library, Settings and Tasks, its
+// name for screen readers, and the heading its pages have in the reader's narrow bar ("⋯", 'nav.go').
 const pageNavCopy = {
-  en: { 'nav.overview': 'Overview', 'nav.reader': 'Reader', 'nav.go_to': 'Go to page' },
-  ja: { 'nav.overview': '概要', 'nav.reader': 'リーダー', 'nav.go_to': 'ページへ移動' },
-  de: { 'nav.overview': 'Übersicht', 'nav.reader': 'Reader', 'nav.go_to': 'Zu Seite wechseln' },
-  fr: { 'nav.overview': 'Aperçu', 'nav.reader': 'Lecteur', 'nav.go_to': 'Aller à la page' },
-  'zh-CN': { 'nav.overview': '概览', 'nav.reader': '阅读器', 'nav.go_to': '前往页面' },
-  ko: { 'nav.overview': '개요', 'nav.reader': '리더', 'nav.go_to': '페이지로 이동' },
-  'zh-TW': { 'nav.overview': '概覽', 'nav.reader': '閱讀器', 'nav.go_to': '前往頁面' },
-  es: { 'nav.overview': 'Vista general', 'nav.reader': 'Lector', 'nav.go_to': 'Ir a la página' },
-  'pt-BR': { 'nav.overview': 'Visão geral', 'nav.reader': 'Leitor', 'nav.go_to': 'Ir para a página' },
-  ru: { 'nav.overview': 'Обзор', 'nav.reader': 'Читалка', 'nav.go_to': 'Перейти на страницу' },
-  vi: { 'nav.overview': 'Tổng quan', 'nav.reader': 'Trình đọc', 'nav.go_to': 'Đi tới trang' },
-  id: { 'nav.overview': 'Ringkasan', 'nav.reader': 'Pembaca', 'nav.go_to': 'Buka halaman' },
+  en: { 'nav.overview': 'Overview', 'nav.reader': 'Reader', 'nav.go_to': 'Go to page', 'nav.go': 'Go to' },
+  ja: { 'nav.overview': '概要', 'nav.reader': 'リーダー', 'nav.go_to': 'ページへ移動', 'nav.go': '移動' },
+  de: { 'nav.overview': 'Übersicht', 'nav.reader': 'Reader', 'nav.go_to': 'Zu Seite wechseln', 'nav.go': 'Wechseln zu' },
+  fr: { 'nav.overview': 'Aperçu', 'nav.reader': 'Lecteur', 'nav.go_to': 'Aller à la page', 'nav.go': 'Aller à' },
+  'zh-CN': { 'nav.overview': '概览', 'nav.reader': '阅读器', 'nav.go_to': '前往页面', 'nav.go': '前往' },
+  ko: { 'nav.overview': '개요', 'nav.reader': '리더', 'nav.go_to': '페이지로 이동', 'nav.go': '이동' },
+  'zh-TW': { 'nav.overview': '概覽', 'nav.reader': '閱讀器', 'nav.go_to': '前往頁面', 'nav.go': '前往' },
+  es: { 'nav.overview': 'Vista general', 'nav.reader': 'Lector', 'nav.go_to': 'Ir a la página', 'nav.go': 'Ir a' },
+  'pt-BR': { 'nav.overview': 'Visão geral', 'nav.reader': 'Leitor', 'nav.go_to': 'Ir para a página', 'nav.go': 'Ir para' },
+  ru: { 'nav.overview': 'Обзор', 'nav.reader': 'Читалка', 'nav.go_to': 'Перейти на страницу', 'nav.go': 'Перейти' },
+  vi: { 'nav.overview': 'Tổng quan', 'nav.reader': 'Trình đọc', 'nav.go_to': 'Đi tới trang', 'nav.go': 'Đi tới' },
+  id: { 'nav.overview': 'Ringkasan', 'nav.reader': 'Pembaca', 'nav.go_to': 'Buka halaman', 'nav.go': 'Buka' },
 };
 for (const [lang, strings] of Object.entries(pageNavCopy)) Object.assign(LOCALES[lang], strings);
 

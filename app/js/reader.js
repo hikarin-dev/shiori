@@ -870,7 +870,9 @@ const snChaptersClose = document.getElementById('snChaptersClose');
 function _syncStudyAvailability() {
   viewToggle.style.display = (_translateAvailable || hasStudy) ? '' : 'none';
   studySeg.classList.toggle('disabled', !hasStudy);
+  translateSeg.toggleAttribute('data-missing', !_translateAvailable);   // (the narrow bar leaves it off)
   _syncSideNav();
+  _placeNarrowBar();
 }
 
 function _scheduleStudyLoad() {
@@ -4939,6 +4941,7 @@ const _viewToMenu = () => { if (viewToggle.parentElement !== tbExtra) tbExtra.in
 // It's content-, not width-, dependent, so it only needs to re-run when the title/toggle/font change.
 const _foldStyle = _rsOwn(document.head.appendChild(document.createElement('style')));
 function _recomputeFold() {
+  if (_narrow.matches) return;   // the narrow bar folds nothing: measured again as the window widens
   // Measure with the bar fully expanded and the gap collapsed, so the children pack to the left and
   // the rightmost one's edge marks the natural content width = the breakpoint (a @container width is
   // the content box, so this px maps straight onto it). Brief inline overrides, no paint in between.
@@ -4959,7 +4962,7 @@ let _tbBusy = false;
 function _layoutStage2() {
   // Only stage 2 (and menu-open cleanup) lives in JS now; a frame of lag here can't flash the title,
   // because by the time the # is in play the title is already fully spent.
-  if (_tbBusy) return;                                               // re-entrancy guard
+  if (_tbBusy || _narrow.matches) return;                            // re-entrancy guard; the narrow bar has no stages
   _tbBusy = true;
   const folded  = getComputedStyle(tbMenuBtn).display !== 'none';    // stage 1 active (set by the query)
   const idClips = () => tbGallery.getBoundingClientRect().right > tbMeta.getBoundingClientRect().right + 0.5;
@@ -4977,6 +4980,38 @@ window.addEventListener('resize', _layoutStage2, { signal: _rsSignal });
 // fires on a plain window resize, keeping the recompute off the resize path.
 document.fonts?.ready.then(() => { if (!_rsStopped) _recomputeFold(); });
 new ResizeObserver(_recomputeFold).observe(document.getElementById('pageCounter'));
+
+// ── The narrow bar: 400px wide and under (the owner's design, A3) ──
+// reader.css draws it. What the stylesheet cannot know is done here, one way, as the fold above moves
+// the translate ⇄ study switch: which of Translate, Study, Thumbnails, Auto-scroll and Reader settings
+// the gallery has (the first three stand on the bar, the rest are rows of the "⋯" list), and the
+// controls that are the list's there and the bar's wider (the gallery's number and title, the reading
+// mode, Thumbnails, and the keys after Pin header). Wider, each goes back where the frame has it. Done
+// as the reader starts (before the frame's first paint), as the window crosses 400px (in the frame the
+// stylesheet turns in), and when what the gallery has is known.
+const _narrow = matchMedia('(max-width: 400px)');
+const tbRows = tbExtra.querySelector('.tb-rows');
+let _barPlaced = 'wide';
+function _placeNarrowBar() {
+  const views = (_translateAvailable ? 1 : 0) + (hasStudy ? 1 : 0);
+  const placed = _narrow.matches ? `narrow ${views}` : 'wide';
+  if (placed === _barPlaced) return;   // (moved only when it changes: a move drops the focus and the pointer's hover)
+  _barPlaced = placed;
+  _viewToBar();
+  if (placed === 'wide') {
+    topbar.insertBefore(tbMeta, tbSpacer);
+    topbar.insertBefore(modeToggle, viewToggle);
+    topbar.insertBefore(autoBtn, modeToggle);
+    tbRows.prepend(thumbBtn, readerSettingsBtn, keybindBtn);
+    return;
+  }
+  const onBar = [thumbBtn, autoBtn, readerSettingsBtn].slice(0, 3 - views);
+  tbExtra.before(...onBar);
+  tbRows.prepend(tbMeta, modeToggle, ...[autoBtn, readerSettingsBtn].filter((b) => !onBar.includes(b)));
+  readerPinBtn.after(keybindBtn);
+}
+_placeNarrowBar();
+_narrow.addEventListener('change', () => { _placeNarrowBar(); _recomputeFold(); }, { signal: _rsSignal });
 
 // ── Page zoom (+/-) ──
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3, ZOOM_STEP = 0.1;

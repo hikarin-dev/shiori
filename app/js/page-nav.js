@@ -34,5 +34,19 @@ export function initPageNav(go) {
     const page = PAGES.find(p => p.id === select.value);
     if (page && page.id !== current) go(page.path());
   }, { signal });
+  // In the reader's narrow bar (400px wide and under) the menu leaves the bar and its other pages are
+  // rows of the "⋯" list (reader.css): a press goes there as a pick does (a modifier key or the middle
+  // button, the browser's own way, to the address it shows).
+  for (const link of document.querySelectorAll('[data-page-link]')) {
+    const page = offered.find(p => p.id === link.dataset.pageLink);
+    link.hidden = !page;
+    if (!page) continue;
+    link.setAttribute('href', `./${page.path()}`);
+    link.addEventListener('click', (e) => {
+      if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      go(page.path());
+    }, { signal });
+  }
   return () => started.abort();
 }

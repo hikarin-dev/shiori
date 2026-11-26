@@ -1,8 +1,9 @@
 // page-nav.browser.mjs — the header's page name is a menu of the app's pages (page-nav.js; on a page
 // the one page draws, PageMenu): each page
 // names itself and offers the others (a gallery's overview only where there is a gallery, the reader
-// only in the reader); picking one goes there. On a phone it stays where the brand's word gives way,
-// and the reader's classic bar still fits.
+// only in the reader); picking one goes there. On a phone it stays where the brand's word gives way;
+// in the reader's classic bar at 400px and under (the narrow bar, A3) it leaves the bar, its other
+// pages rows of the "⋯" list under "Go to", and the bar fits.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startServer, chromePath, launch, openPage, until } from './harness.mjs';
@@ -159,13 +160,15 @@ test('every way to the library arrives at it, drawn by the one page', { skip: !c
   assert.equal(start, '/', 'the installed app starts at the root of the site');
 });
 
-test("on a phone the menu stays in every header, and the reader's classic bar still fits", { skip: !chromePath() }, async t => {
-  for (const [path, width] of [['/library', 390], ['/settings', 360], ['/tasks', 384], [`/overview?g=${GID}`, 384], [`/reader?g=${GID}`, 390], [`/reader?g=${GID}`, 360]]) {
+test("on a phone the menu stays in every header; the reader's classic bar fits, its pages in the \"⋯\" list there", { skip: !chromePath() }, async t => {
+  for (const [path, width] of [['/library', 390], ['/settings', 360], ['/tasks', 384], [`/overview?g=${GID}`, 384], [`/reader?g=${GID}`, 420], [`/reader?g=${GID}`, 390], [`/reader?g=${GID}`, 360]]) {
     const page = await visit(t, path, { width, height: 700, hasTouch: true, isMobile: true });
     const state = await page.evaluate(() => {
       const menu = document.getElementById('pageNav'), bar = menu.closest('header, #topbar'), r = menu.getBoundingClientRect();
-      return { shown: r.width > 0 && r.right <= innerWidth, fits: bar.scrollWidth <= bar.clientWidth };
+      const listed = [...document.querySelectorAll('#topbar [data-page-link]')].filter((a) => !a.hidden).map((a) => a.dataset.pageLink);
+      return { shown: r.width > 0 && r.right <= innerWidth, fits: bar.scrollWidth <= bar.clientWidth, listed };
     });
-    assert.deepEqual(state, { shown: true, fits: true }, `${path} at ${width}px`);
+    const narrow = path.startsWith('/reader') && width <= 400;
+    assert.deepEqual(state, { shown: !narrow, fits: true, listed: path.startsWith('/reader') ? ['overview', 'settings'] : [] }, `${path} at ${width}px`);
   }
 });
