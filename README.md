@@ -81,13 +81,14 @@ Each browser keeps its own library. To move it, make a full backup and restore i
 
 <br>
 
-Shiori is a static site and can be served by any web server. From the repository root, for example:
+Shiori is a static site, built from this repository and served by any web server. From the repository root (Node.js 24):
 
 ```
-npx serve -p 5500 .
+npm ci
+npm run build
 ```
 
-Then open `http://localhost:5500/`. Each address keeps its own library, so use the same one every time.
+The site is then in `dist/`: serve that folder with a server that answers an address it has no file for with the folder's `404.html` (as GitHub Pages does), or run `npm run preview`, which builds it and serves it at `http://localhost:5500/`. Each address keeps its own library, so use the same one every time.
 
 </details>
 
