@@ -97,7 +97,7 @@ function Tag({ variant = 'neutral', size, count, filterKey, removable, className
       {children}
       {count !== undefined && (
         <span data-slot="tag-count" className={cn('ml-[8px] border-0 border-l border-solid pl-[8px] text-muted-foreground tabular-nums [border-left-color:inherit]',
-          removable && 'in-[.shift-held]:group-hover/tag:text-inherit in-[.shift-held]:group-hover/tag:[border-left-color:rgb(255_100_103/50%)]')}>{count}</span>
+          removable && 'in-[.shift-held]:group-hover/tag:text-inherit in-[.shift-held]:group-hover/tag:[border-left-color:var(--destructive-half)]')}>{count}</span>
       )}
     </>
   );

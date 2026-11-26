@@ -68,6 +68,7 @@
        colour's own words on its 20%, 30% under the pointer, no line. (4.5:1 over a surface.) */
     --destructive-fill: rgb(255 90 54 / 20%);
     --destructive-fill-hover: rgb(255 90 54 / 30%);
+    --destructive-half: rgb(255 90 54 / 50%);   /* a line half the colour: a tag's count divider as its removal is previewed */
     --switch-track: #303038;
     --switch-track-border: #4a4a55;
     --switch-knob: #b3b3bf;
