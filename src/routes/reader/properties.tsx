@@ -254,6 +254,17 @@ export default function PageProperties() {
   const [copied, setCopied] = useState<string | null>(null);
   const timer = useRef(0);
   const close = useRef<HTMLButtonElement>(null);
+  // Whether the last press was a key's (I) or the pointer's (the page menu's item): its close button
+  // shows the keyboard's ring only after a key, as 1.3's did (rule 12).
+  const byKey = useRef(false);
+  useEffect(() => {
+    const key = () => { byKey.current = true; };
+    const pointer = () => { byKey.current = false; };
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('pointerdown', pointer, true);
+    return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('pointerdown', pointer, true); };
+  }, []);
+  const focusClose = () => { close.current?.focus({ preventScroll: true, focusVisible: byKey.current } as FocusOptions); return false; };
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => { setCopied(null); }, [ask?.id]);
   const copy = async () => {
@@ -267,7 +278,7 @@ export default function PageProperties() {
     <Dialog open={!!ask} onOpenChange={(open) => { if (!open) closeProperties(); }}>
       {ask && (
         // Focus on its close button, as 1.3's (Copy as JSON is pressable only once the page is read).
-        <DialogContent key={ask.id} size="2xl" layout="sectioned" layer="over" data-reader-part="properties" initialFocus={close}
+        <DialogContent key={ask.id} size="2xl" layout="sectioned" layer="over" data-reader-part="properties" initialFocus={focusClose}
           className="h-[min(860px,calc(100dvh-32px))] max-[520.02px]:h-[calc(100dvh-16px)]">
           <DialogHeader className="items-start">
             <div className="min-w-0">
