@@ -2,9 +2,10 @@
 // app/js/reader-properties.js drew it by hand): everything stored for one page, as the app's sectioned
 // Dialog. The module reads the page (its record, its gallery's translation, each picture inspected,
 // describePage, then where a new translation would start) and hands each step to ./properties-store.ts;
-// this draws it in place. The box is its full height from its first frame (the owner's rule for dialogs:
-// its top and its size never move), what comes later filling it: the loading line, then the page, then
-// the plan of a translation made again.
+// this draws it. The box is drawn once the page has been read, as tall as what it holds (at most 860px),
+// and neither moves nor grows after its first frame (the owner's rule for dialogs): what comes later, the
+// plan of a translation made again, has its room from the start. (1.3's showed at once with a loading
+// line and grew when the page came.)
 //
 // Sizes are the dialogs' (D8, §5.3 S16): the Dialog's frame, header (title 15px), body padding 20, corner
 // X, an sm outline button for Copy as JSON; the chips are Badge's status pills, the table tag Badge's
@@ -123,7 +124,6 @@ function Hero({ info, thumb, t }: { info: Info; thumb: Blob | null; t: ReturnTyp
 }
 
 function Body({ ask, t }: { ask: PropertiesAsk; t: ReturnType<typeof useT> }) {
-  if (ask.state === 'loading') return <p className={cn(NOTE, 'mt-0')}>{t('page.loading')}</p>;
   if (ask.state === 'missing' || !ask.info) return <p className={cn(NOTE, 'mt-0')}>{t('page.not_stored')}</p>;
   const info = ask.info;
   const original = info.original?.bytes || 0;
@@ -170,7 +170,8 @@ function Body({ ask, t }: { ask: PropertiesAsk; t: ReturnType<typeof useT> }) {
             </Details>
           </>
         ) : <p className={NOTE}>{t('page.no_translation')}</p>}
-        <div data-pp="again" className="mt-[11px]"><Rows rows={againRows} /></div>
+        {/* Two rows' room from the start: the server's answer is one row or two, and the box does not grow for it. */}
+        <div data-pp="again" className="mt-[11px] min-h-[calc(2lh+6px)] text-11 max-[560.02px]:min-h-[calc(4lh+15px)]"><Rows rows={againRows} /></div>
       </Section>
       <Section title={t('page.steps')} meta={s ? `${formatBytes(s.bytes)}${original ? ` · ${share(s.bytes, original)}` : ''}` : ''}>
         {!s ? <p className={NOTE}>{t('page.nothing_saved')}</p> : (
@@ -274,24 +275,27 @@ export default function PageProperties() {
     timer.current = window.setTimeout(() => setCopied(null), 1600);
   };
   const sub = ask ? joined(ask.page.chapter, t('page.of', { n: formatCount(ask.page.number), total: formatCount(ask.page.total) })) : '';
+  // Drawn once the page has been read (a few frames after it is asked for; the engine counts it open
+  // from the request): the box is as tall as what it holds, at most 860px, from its first frame.
+  const shown = ask && ask.state !== 'loading' ? ask : null;
   return (
-    <Dialog open={!!ask} onOpenChange={(open) => { if (!open) closeProperties(); }}>
-      {ask && (
-        // Focus on its close button, as 1.3's (Copy as JSON is pressable only once the page is read).
-        <DialogContent key={ask.id} size="2xl" layout="sectioned" layer="over" data-reader-part="properties" initialFocus={focusClose}
-          className="h-[min(860px,calc(100dvh-32px))] max-[520.02px]:h-[calc(100dvh-16px)]">
+    <Dialog open={!!shown} onOpenChange={(open) => { if (!open) closeProperties(); }}>
+      {shown && (
+        // Focus on its close button, as 1.3's.
+        <DialogContent key={shown.id} size="2xl" layout="sectioned" layer="over" data-reader-part="properties" initialFocus={focusClose}
+          className="max-h-[min(860px,calc(100dvh-32px))]">
           <DialogHeader className="items-start">
             <div className="min-w-0">
               <DialogTitle>{t('page.properties')}</DialogTitle>
               <DialogDescription>{sub}</DialogDescription>
             </div>
             <div className="flex shrink-0 items-center gap-[8px]">
-              <Button size="sm" disabled={!ask.copy} onClick={() => void copy()}>{copied ?? t('page.copy')}</Button>
+              <Button size="sm" disabled={!shown.copy} onClick={() => void copy()}>{copied ?? t('page.copy')}</Button>
               <DialogClose ref={close} />
             </div>
           </DialogHeader>
           <DialogBody data-pp="body">
-            <Body ask={ask} t={t} />
+            <Body ask={shown} t={t} />
           </DialogBody>
         </DialogContent>
       )}

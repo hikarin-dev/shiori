@@ -306,6 +306,42 @@ test('page properties\' box neither moves nor grows after its first frame, the C
   }
 });
 
+// The box is as tall as what it holds (1.3's was, once its page had come): a page with no translation has
+// little to show, and its box ends under its last section, in the window's middle; a page with more than
+// fits stops at 860px and its body scrolls. (Drawn at its full height whatever it held, an untranslated
+// page's box was a third empty: plans/frontend-react-probes/8e/props-plain.mjs.)
+test('page properties\' box is as tall as what it holds, at most 860px, and stands in the window\'s middle', { skip: !chromePath() }, async (t) => {
+  const PLAIN = '1790000000472';
+  const page = await reader(t);
+  await page.evaluate(async (gid) => {
+    const api = await import('/app/js/api.js');
+    await api.meta.put({ galleryId: gid, title: { english: 'Plain fixture' }, numPages: 2 });
+    const canvas = new OffscreenCanvas(600, 900);
+    canvas.getContext('2d').fillRect(0, 0, 600, 900);
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    for (let n = 1; n <= 2; n++) await api.pages.put(gid, n, blob);
+  }, PLAIN);
+  const box = () => page.evaluate((sel) => {
+    const el = document.querySelector(sel), b = el.getBoundingClientRect();
+    const body = el.querySelector('[data-pp="body"]'), last = body.lastElementChild.getBoundingClientRect();
+    return { top: Math.round(b.top), height: Math.round(b.height), under: Math.round(innerHeight - b.bottom), scrolls: body.scrollHeight > body.clientHeight, emptyBelow: Math.round(b.bottom - last.bottom) };
+  }, PROPERTIES);
+  // The fixture's page: translated, with its snapshots and study layers.
+  await openProperties(page);
+  const full = await box();
+  assert.deepEqual({ top: full.top, height: full.height, under: full.under, scrolls: full.scrolls }, { top: 20, height: 860, under: 20, scrolls: true }, 'a page with more than fits: 860px, its body scrolling');
+  await page.keyboard.press('Escape');
+  // A page with no translation.
+  await page.goto(`${origin}/reader?g=${PLAIN}&page=1`, { waitUntil: 'load' });
+  await until(page, () => document.getElementById('mainImg')?.naturalWidth > 0, null, { what: 'the plain page drawn' });
+  await sleep(300);
+  await openProperties(page);
+  const plain = await box();
+  assert.ok(plain.height < 760 && !plain.scrolls, `its box is ${plain.height}px tall and does not scroll`);
+  assert.ok(plain.emptyBelow <= 24, `${plain.emptyBelow}px under its last section (the body's own space)`);
+  assert.ok(Math.abs(plain.top - plain.under) <= 1, `in the window's middle: ${plain.top}px above, ${plain.under}px under`);
+});
+
 // Feedback's box likewise, from the press on a bubble with no draft yet (its code fetched already): the
 // evidence captured and the frozen page's pictures replaced after it shows.
 test('the feedback dialog\'s box neither moves nor grows after its first frame, the CPU six times slower', { skip: !chromePath() }, async (t) => {
