@@ -304,3 +304,39 @@ test('just over 430px the wide bar is drawn and fits: nothing past the window\'s
     assert.ok(seen.more <= seen.window, `${width}: "⋯" ends at ${seen.more}`);
   }
 });
+
+// A gallery's study layers are read while the reader idles, a moment after its bar is first seen. A
+// gallery with a translation keeps Study's place from the first frame (greyed until they are read), so
+// the bar's buttons are the same in every frame it is seen in. (Placed once the layers were read, the
+// bar showed Home, Translate, Thumbnails, Auto-scroll and then, some 50 ms later, 400 on a slow phone,
+// moved Study in and Auto-scroll out: plans/frontend-react-probes/8g/bar-shuffle.mjs.)
+test('the narrow bar of a gallery with a translation and study shows the same buttons in every frame from its first', { skip: !chromePath() }, async (t) => {
+  for (const cpu of [1, 4]) {
+    const page = await openPage(browser, origin);
+    t.after(() => page.close());
+    await page.setViewport({ width: 390, height: 844, hasTouch: true, isMobile: true });
+    await page.evaluateOnNewDocument(() => {
+      localStorage.setItem('shiori-reader-nav', 'top'); localStorage.setItem('shiori-reader-pin', '1');
+      localStorage.setItem('shiori:readerMode', '"single"'); localStorage.setItem('shiori:readerView', '"off"');
+      window.__bars = [];
+      const tick = () => {
+        const loading = document.getElementById('loadingScreen');
+        // Seen: the reader's frame drawn and its loading screen gone.
+        if (loading && getComputedStyle(loading).display === 'none') {
+          const shown = [...document.querySelectorAll('#topbar > :is(a, button), #topbar > #viewToggle > button')].filter((el) => el.getClientRects().length && !el.closest('.tb-extra'))
+            .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left).map((el) => (el.classList.contains('brand-wrap') ? 'home' : el.id)).join(' ');
+          if (window.__bars.at(-1) !== shown) window.__bars.push(shown);
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    const cdp = await page.createCDPSession();
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu });
+    await page.goto(`${origin}/reader?g=${G.ts}&page=2`, { waitUntil: 'load' });
+    await until(page, () => !document.getElementById('studySeg').classList.contains('disabled'), null, { what: 'study known', timeout: 30000 });
+    await sleep(500);
+    assert.deepEqual(await page.evaluate(() => window.__bars), [CASES.ts.bar.join(' ')], `CPU ×${cpu}: one set of buttons in every frame the bar was seen in`);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  }
+});

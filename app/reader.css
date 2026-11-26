@@ -341,7 +341,7 @@ body[data-bar="top"] .auto-bar[data-at="top"] { top: var(--line); }
      sliding mark); a side the gallery hasn't is left off. */
   #topbar #viewToggle { display: contents; }
   #topbar :is(#viewToggle, #modeToggle) .seg-indicator,
-  #topbar #viewToggle > :is([data-missing], .disabled) { display: none; }
+  #topbar #viewToggle > :is([data-missing], .disabled:not([data-pending])) { display: none; }
   #topbar :is(.tb-btn, .seg) {
     width: 44px; height: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--foreground);
     transition: background-color 0.12s, color 0.12s;

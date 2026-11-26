@@ -870,6 +870,10 @@ const snChaptersClose = document.getElementById('snChaptersClose');
 function _syncStudyAvailability() {
   viewToggle.style.display = (_translateAvailable || hasStudy) ? '' : 'none';
   studySeg.classList.toggle('disabled', !hasStudy);
+  // A gallery with a translation usually has study layers, and they are read while the reader idles, a
+  // moment after the bar shows: until they are, the narrow bar keeps Study's place (greyed, as the wide
+  // bar shows it), so its buttons do not change places under the eye once they are.
+  studySeg.toggleAttribute('data-pending', _studyPending());
   translateSeg.toggleAttribute('data-missing', !_translateAvailable);   // (the narrow bar leaves it off)
   _syncSideNav();
   _placeNarrowBar();
@@ -4994,8 +4998,9 @@ new ResizeObserver(_recomputeFold).observe(document.getElementById('pageCounter'
 const _narrow = matchMedia('(max-width: 430px)');
 const tbRows = tbExtra.querySelector('.tb-rows');
 let _barPlaced = 'wide';
+const _studyPending = () => !hasStudy && !_studyLoaded && _translateAvailable;
 function _placeNarrowBar() {
-  const views = (_translateAvailable ? 1 : 0) + (hasStudy ? 1 : 0);
+  const views = (_translateAvailable ? 1 : 0) + (hasStudy || _studyPending() ? 1 : 0);
   const placed = _narrow.matches ? `narrow ${views}` : 'wide';
   if (placed === _barPlaced) return;   // (moved only when it changes: a move drops the focus and the pointer's hover)
   _barPlaced = placed;
