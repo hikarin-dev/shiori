@@ -104,6 +104,61 @@ test('the list hangs off the box at its width, eight rows at most, and stays on 
   assert.deepEqual(page.problems, []);
 });
 
+// The owner (2026-11-26), of the browser's own scrollbar in "modals and dropdown": kept to the straight
+// part of the side. The bar runs the whole height of the box that scrolls (the rows'), so that box
+// ends 4px short of the list's rounded end, the list's own space where it was the rows': the corner's
+// curve has left the side by less than a quarter of a pixel there. The end by the box is square, and
+// the rows run to the seam. Nothing moves for it: the list is as tall, its last row as far from its end.
+test('the rows scroll in a box that ends short of the list\'s rounded end, down, up and on the ghost\'s', async (t) => {
+  const page = await componentsPage(t, browser, origin);
+  if (!page) return;
+  const read = () => page.evaluate(() => {
+    const list = document.querySelector('[data-slot="select-list"][data-open]'), rows = list.querySelector('[data-slot="select-rows"]');
+    const l = list.getBoundingClientRect(), r = rows.getBoundingClientRect(), ls = getComputedStyle(list), rs = getComputedStyle(rows);
+    // How far the corner's curve has left the side at the height the rows' box ends: 0 on a square end.
+    const leaves = (radius, from) => (radius <= from ? 0 : radius - Math.sqrt(radius * radius - (radius - from) ** 2));
+    const top = r.top + parseFloat(rs.borderTopWidth) - l.top, bottom = l.bottom - (r.bottom - parseFloat(rs.borderBottomWidth));
+    rows.scrollTop = rows.scrollHeight;
+    const options = rows.querySelectorAll('[data-slot="select-option"]'), last = options[options.length - 1].getBoundingClientRect();
+    return { scrolls: rows.scrollHeight > rows.clientHeight, listScrolls: /auto|scroll/.test(ls.overflowY), height: +l.height.toFixed(2),
+      radius: [parseFloat(ls.borderTopRightRadius), parseFloat(ls.borderBottomRightRadius)], ends: [top, bottom],
+      curve: [+leaves(parseFloat(ls.borderTopRightRadius), top).toFixed(3), +leaves(parseFloat(ls.borderBottomRightRadius), bottom).toFixed(3)],
+      lastRowFromEnd: +(l.bottom - last.bottom).toFixed(2), rowsRadius: [rs.borderTopRightRadius, rs.borderBottomRightRadius] };
+  });
+  const open = async (sel) => {
+    const at = await centreOf(page, sel);
+    await page.mouse.click(at.x, at.y);
+    await until(page, () => !!document.querySelector('[data-slot="select-list"][data-open]'), undefined, { what: 'the list open', timeout: 5000 });
+    await settled(page);
+    return read();
+  };
+  const close = async () => { await page.keyboard.press('Escape'); await until(page, () => !document.querySelector('[data-slot="select-list"][data-open]'), undefined, { what: 'the list closed', timeout: 5000 }); await settled(page); };
+
+  // Down: twelve languages, eight showing. Square by the box, the rows from the seam (1px) to 4px and the line short of the end.
+  const down = await open(FIELD);
+  assert.deepEqual([down.scrolls, down.listScrolls, down.radius, down.ends], [true, false, [0, 6], [1, 5]]);
+  assert.ok(down.curve[1] < 0.25, `the curve ${down.curve[1]}px off the side where the bar ends`);
+  // (As tall as it was, and its last row as far from its end: eight rows, 4px above and below, the seam and the frame.)
+  const row = await page.$eval('[data-slot="select-list"][data-open] [data-slot="select-option"]', (el) => el.getBoundingClientRect().height);
+  assert.ok(Math.abs(down.height - (8 * row + 10)) < 0.01, `${down.height} for eight rows of ${row}`);
+  assert.ok(Math.abs(down.lastRowFromEnd - 5) < 1, `the last row ${down.lastRowFromEnd}px from the end`);   // (a scroll offset is a whole pixel)
+  assert.deepEqual(down.rowsRadius, ['0px', '0px']);
+  await close();
+
+  // The ghost's: rounded at both ends.
+  const ghost = await open(spec('page-nav', 'ghost'));
+  assert.deepEqual([ghost.listScrolls, ghost.radius, ghost.ends], [false, [6, 6], [5, 5]]);
+  assert.ok(ghost.curve[0] < 0.25 && ghost.curve[1] < 0.25, `${ghost.curve}`);
+  await close();
+
+  // Up: the rounded end is the top.
+  await page.$eval(FIELD, (el) => { const p = el.parentElement; Object.assign(p.style, { position: 'fixed', bottom: '10px', left: '20px', zIndex: 5 }); });
+  const up = await open(FIELD);
+  assert.deepEqual([up.scrolls, up.listScrolls, up.radius, up.ends, up.height], [true, false, [6, 0], [5, 1], down.height]);
+  assert.ok(up.curve[0] < 0.25, `the curve ${up.curve[0]}px off the side where the bar ends`);
+  assert.deepEqual(page.problems, []);
+});
+
 test('near the bottom of the window it opens upward, its top corners squared off the box', async (t) => {
   const page = await componentsPage(t, browser, origin);
   if (!page) return;

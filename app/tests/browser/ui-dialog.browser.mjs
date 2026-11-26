@@ -26,7 +26,8 @@ test('the shapes: widths, one frame, one title, the sizes of each layout', async
     const title = el.querySelector('[data-slot="dialog-title"]'), ts = getComputedStyle(title);
     const part = (slot) => { const p = el.querySelector(`[data-slot="${slot}"]`); return p ? +p.getBoundingClientRect().height.toFixed(2) : null; };
     const shadow = s.boxShadow.split(/,(?![^(]*\))/).map((x) => x.trim()).filter((x) => x !== 'rgba(0, 0, 0, 0) 0px 0px 0px 0px').join(', ');
-    return { w: r.width, pad: s.padding, radius: s.borderTopLeftRadius, frame: s.borderTopColor, ground: s.backgroundColor, shadow,
+    const contents = el.querySelector(':scope > [data-slot="dialog-contents"]');
+    return { w: r.width, pad: s.padding, contents: contents && getComputedStyle(contents).padding, radius: s.borderTopLeftRadius, frame: s.borderTopColor, ground: s.backgroundColor, shadow,
       title: [ts.fontSize, ts.fontWeight, ts.lineHeight], header: part('dialog-header'), footer: part('dialog-footer'), transform: s.transform };
   });
   const widths = { 'notice-dialog/simple': 440, 'notice-ask/simple': 440, 'notice-ask/operation': 480, 'modal-box/simple': 340, 'modal-box/filter': 620,
@@ -46,7 +47,9 @@ test('the shapes: widths, one frame, one title, the sizes of each layout', async
       assert.ok(l.header === 53 || l.header > 53, `${id} header ${l.header}`);
       if (l.footer != null) assert.equal(l.footer, 63, id);
     } else {
-      assert.equal(l.pad, '20px', id);                                      // S16
+      // S16, 20px every side: the frame's 11 above and below (12 with its line: its rounding) and its
+      // contents' 9, the contents' 20 at the sides.
+      assert.deepEqual([l.pad, l.contents], ['11px 0px', '9px 20px'], id);
     }
   }
   // The settings dialog with a description: 16 + 20 + 4 + 16.5 + 16 and its rule.
@@ -55,6 +58,35 @@ test('the shapes: widths, one frame, one title, the sizes of each layout', async
   const close = await page.$eval(`${spec('feedback', 'simple')} [data-slot="dialog-close"]`, (el) => [el.getAttribute('aria-label'), el.getBoundingClientRect().width, el.querySelector('svg').getBoundingClientRect().width]);
   assert.deepEqual(close, ['Close', 28, 16]);
   assert.deepEqual(await textMotion(page, '[data-section="dialog"]'), []);
+  assert.deepEqual(page.problems, []);
+});
+
+// The owner (2026-11-26): the scrollbar "limited" to the straight part of a dialog's side, out of the
+// "curve part", and the browser's own bar, not one drawn to look like it. The browser draws a box's
+// scrollbar the whole height of the box that scrolls, so the measure is that box: in a window too
+// short for a dialog, what scrolls in it starts and ends at least the frame's rounding from the
+// frame's top and bottom, and the frame itself does not scroll.
+test('what scrolls in a dialog stops where its corners begin to curve, so the browser\'s scrollbar keeps to the straight side', async (t) => {
+  const page = await componentsPage(t, browser, origin, { width: 1280, height: 170 });
+  if (!page) return;
+  const read = () => page.evaluate(() => [...document.querySelectorAll('[data-slot="dialog"][data-specimen]')].map((frame) => {
+    const f = frame.getBoundingClientRect(), fs = getComputedStyle(frame);
+    const scrollers = [frame, ...frame.querySelectorAll('*')].filter((el) => /auto|scroll/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1)
+      .map((el) => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return { slot: el.dataset.slot, fromTop: r.top + parseFloat(s.borderTopWidth) - f.top, fromBottom: f.bottom - (r.bottom - parseFloat(s.borderBottomWidth)), atSide: f.right - r.right < 2 }; });
+    return { id: `${frame.dataset.specimen}/${frame.dataset.variant}`, layout: frame.dataset.layout, radius: [parseFloat(fs.borderTopRightRadius), parseFloat(fs.borderBottomRightRadius)], frameScrolls: /auto|scroll/.test(fs.overflowY), scrollers };
+  }));
+  const shapes = await read();
+  const scrolling = shapes.filter((s) => s.scrollers.length);
+  assert.ok(scrolling.filter((s) => s.layout === 'simple').length >= 4 && scrolling.some((s) => s.layout === 'sectioned'), `dialogs of both layouts scroll in this window: ${scrolling.map((s) => s.id)}`);
+  for (const s of shapes) {
+    assert.equal(s.frameScrolls, false, `${s.id}: the frame does not scroll`);
+    for (const box of s.scrollers.filter((b) => b.atSide)) {
+      assert.ok(box.fromTop >= s.radius[0], `${s.id} ${box.slot}: ${box.fromTop}px from the top, the rounding ${s.radius[0]}`);
+      assert.ok(box.fromBottom >= s.radius[1], `${s.id} ${box.slot}: ${box.fromBottom}px from the bottom, the rounding ${s.radius[1]}`);
+    }
+  }
+  // A simple dialog's contents: exactly the rounding off each end (the rest of its 20px goes with what scrolls).
+  for (const s of scrolling.filter((x) => x.layout === 'simple')) assert.deepEqual(s.scrollers.map((b) => [b.slot, b.fromTop, b.fromBottom]), [['dialog-contents', 12, 12]], s.id);
   assert.deepEqual(page.problems, []);
 });
 

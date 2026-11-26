@@ -4,7 +4,7 @@
 // UI's dialog.
 //
 //   layout  simple     one padded box: a title row, what it says, its buttons at the end (the
-//                      notices, the page dialogs, the keys, feedback, the benchmark); the whole box
+//                      notices, the page dialogs, the keys, feedback, the benchmark); all of it
 //                      scrolls when the window is too short for it;
 //           sectioned  a ruled header, a body that scrolls on its own, a ruled footer (Settings'
 //                      dialogs, page properties).
@@ -15,6 +15,14 @@
 //            benchmark).
 //   layer    dialog (the pages' own dialogs) or notice (notice.js's, over everything else, the
 //            toast included).
+//
+// What scrolls stops where the box's corners begin to curve (owner, 2026-11-26): the browser draws a
+// scrollbar the whole height of the box that scrolls, and nothing in CSS shortens one, so the box that
+// scrolls is itself kept to the straight part of the side. A simple dialog's contents are a block of
+// their own inside the frame, 12px (the rounding) off its top and bottom; a sectioned one's body has
+// its header and footer there, and keeps the same off the bottom when no footer follows it. The
+// spaces at rest are the same (S16): the 12px are part of the 20, and only what scrolls past is cut
+// there and not at the frame.
 //
 // T16, rules 10–12, as 1.3's overlays were:
 //   - Focus is trapped in the box (modal 'trap-focus') and goes back to what had it when the box
@@ -76,14 +84,17 @@ const box = cva(
         xl: 'w-[min(620px,100%)]', '2xl': 'w-[min(760px,100%)]', '3xl': 'w-[min(960px,100%)]', '4xl': 'w-[min(1120px,100%)]',
       },
       layout: {
-        // A block, as 1.3's notice box: the space between what it says and its buttons is the larger
-        // of the two margins, not their sum.
-        simple: 'scroll-box max-h-[calc(100dvh-32px)] p-[20px]',
+        // (11px and its 1px line: the rounding.)
+        simple: 'flex max-h-[calc(100dvh-32px)] flex-col overflow-hidden py-[11px]',
         sectioned: 'flex max-h-[calc(100dvh-32px)] flex-col overflow-hidden max-[520.02px]:max-h-[calc(100dvh-16px)] max-[520.02px]:rounded-10',
       },
     },
   },
 );
+
+// A simple dialog's contents, which scroll. A block, as 1.3's notice box: the space between what it
+// says and its buttons is the larger of the two margins, not their sum.
+const SIMPLE_CONTENTS = 'scroll-box min-h-0 px-[20px] py-[9px]';
 
 type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
 type ContentProps = Omit<DialogPrimitive.Popup.Props, 'className'> & {
@@ -97,7 +108,11 @@ type ContentProps = Omit<DialogPrimitive.Popup.Props, 'className'> & {
 };
 
 function DialogContent({ size = 'sm', layout = 'simple', layer = 'dialog', still, className, backdropClassName, children, ...props }: ContentProps) {
-  const inner = <LayoutContext.Provider value={layout}>{children}</LayoutContext.Provider>;
+  const inner = (
+    <LayoutContext.Provider value={layout}>
+      {layout === 'simple' ? <div data-slot="dialog-contents" className={SIMPLE_CONTENTS}>{children}</div> : children}
+    </LayoutContext.Provider>
+  );
   if (still) {
     return <div data-slot="dialog" data-layout={layout} className={cn(box({ size, layout }), className)} {...(props as ComponentProps<'div'>)}><StillContext.Provider value>{inner}</StillContext.Provider></div>;
   }
@@ -150,9 +165,21 @@ function DialogDescription({ className, ...props }: Omit<DialogPrimitive.Descrip
   return <DialogPrimitive.Description data-slot="dialog-description" className={classes} {...props} />;
 }
 
-// A sectioned dialog's body, which scrolls on its own between the header and the footer.
+// A sectioned dialog's body, which scrolls on its own between the header and the footer. With no
+// footer after it, it ends where the frame's bottom corners begin (12px up, 10 in the phone form), that
+// much of its bottom space the frame's instead of its own.
 function DialogBody({ className, ...props }: ComponentProps<'div'>) {
-  return <div data-slot="dialog-body" className={cn('scroll-box min-h-0 min-w-0 flex-1 p-[20px] max-[520.02px]:p-[14px]', className)} {...props} />;
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn(
+        'scroll-box min-h-0 min-w-0 flex-1 p-[20px] max-[520.02px]:p-[14px]',
+        'last:mb-[11px] last:pb-[9px] max-[520.02px]:last:mb-[9px] max-[520.02px]:last:pb-[5px]',
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 // The buttons at the end: after what the box says (simple) or ruled off under the body (sectioned).

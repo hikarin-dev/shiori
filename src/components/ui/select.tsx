@@ -23,6 +23,11 @@
 // is as wide as the drawn one, and as wide as its chosen label where the browser can size it so
 // (field-sizing; elsewhere its widest), as 1.3's page menu was.
 //
+// The rows scroll in a box that stops 4px short of the list's rounded end (both ends of the ghost's):
+// that space is the list's own, where it was the rows' before, so the browser's scrollbar, which runs
+// the whole height of what scrolls, stays out of the corners (owner, 2026-11-26). The end by the box
+// is square, and the rows run to the seam there.
+//
 // Placement is CSS's (rule 10): the box is an anchor (anchor-name) and the list is placed against it
 // with anchor positioning, at the box's bottom edge and width, in the same frame as any scroll or
 // resize. Base UI's positioner still wraps the list (its popup needs it) but its computed place is
@@ -256,7 +261,7 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
               'box-border border border-solid border-border-hover text-foreground shadow-popover outline-none',
               GROUND[variant],
               TEXT[s],
-              variant === 'ghost' ? 'rounded-6' : up ? 'rounded-t-6 border-b-0' : 'rounded-b-6 border-t-0',
+              variant === 'ghost' ? 'rounded-6 py-[4px]' : up ? 'rounded-t-6 border-b-0 pt-[4px]' : 'rounded-b-6 border-t-0 pb-[4px]',
               // It unrolls away from the box (a clip, not a fade: rule 11).
               'transition-[clip-path] duration-open ease-out',
               up ? '[clip-path:inset(-24px_-24px_0_-24px)] data-starting-style:[clip-path:inset(100%_-24px_0_-24px)] data-ending-style:[clip-path:inset(100%_-24px_0_-24px)]'
@@ -267,10 +272,10 @@ function Select({ options, value, defaultValue, onValueChange, variant = 'field'
               data-slot="select-rows"
               className={cn(
                 // Eight rows at most, then it scrolls; the seam by the box stays where it is.
-                'box-border overflow-y-auto py-[4px]',
-                variant === 'ghost' ? 'max-h-[calc(8*(1lh+12px)+8px)] rounded-[5px]'
-                  : up ? 'max-h-[calc(8*(1lh+12px)+9px)] rounded-t-[5px] border-0 border-b border-solid border-border'
-                    : 'max-h-[calc(8*(1lh+12px)+9px)] rounded-b-[5px] border-0 border-t border-solid border-border',
+                'box-border overflow-y-auto',
+                variant === 'ghost' ? 'max-h-[calc(8*(1lh+12px))]'
+                  : up ? 'max-h-[calc(8*(1lh+12px)+5px)] border-0 border-b border-solid border-border pb-[4px]'
+                    : 'max-h-[calc(8*(1lh+12px)+5px)] border-0 border-t border-solid border-border pt-[4px]',
               )}
             >
               {options.map((o) => (

@@ -247,6 +247,21 @@ test('About: opens with its close focused, the version and the changelog drawn; 
   assert.deepEqual(shown, { role: 'dialog', focused: 'aboutClose', version: `v${manifest}`, title: 'Shiori', firstVersion: shown.firstVersion, date: true, heading: true,
     repo: 'https://github.com/hikarin-dev/shiori/', scrolls: true });
   assert.match(shown.firstVersion, /^v\d+\.\d+\.\d+$/);
+  // No footer follows its changelog, so what scrolls ends where the box's bottom corners begin to curve
+  // (the browser's scrollbar keeps to the straight side: owner, 2026-11-26), 12px up and 10 in the
+  // phone form; the space under the last line is the 20px (14) it was, the rest of it the box's.
+  const ends = () => page.evaluate(() => {
+    const box = document.getElementById('aboutBox'), log = document.getElementById('aboutChangelog'), b = box.getBoundingClientRect();
+    log.scrollTop = log.scrollHeight;
+    const under = b.bottom - 1 - log.lastElementChild.getBoundingClientRect().bottom;
+    log.scrollTop = 0;
+    return [parseFloat(getComputedStyle(box).borderBottomRightRadius), b.bottom - log.getBoundingClientRect().bottom, Math.round(under)];
+  });
+  assert.deepEqual(await ends(), [12, 12, 20]);
+  const viewport = page.viewport();
+  await page.setViewport({ width: 500, height: 700 });
+  assert.deepEqual(await ends(), [10, 10, 14]);
+  await page.setViewport(viewport);
   // Focus held inside: Tab from the close goes round to the repository link, not to the page.
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => !!document.activeElement.closest('#aboutBox')), true, 'focus stays in the dialog');

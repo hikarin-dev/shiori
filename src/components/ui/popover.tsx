@@ -84,8 +84,10 @@ function PopoverHeader({ className, ...props }: ComponentProps<'div'>) {
   return <div data-slot="popover-header" className={cn('flex shrink-0 items-center justify-between pt-[8px] pr-[8px] pb-[4px] pl-[16px] text-14 font-bold', className)} {...props} />;
 }
 
+// (The 8px under the list are the panel's, not the list's: what scrolls, and the browser's scrollbar
+// with it, ends short of the panel's bottom corners, as a dialog's does: dialog.tsx.)
 function PopoverList({ className, ...props }: ComponentProps<'div'>) {
-  return <div data-slot="popover-list" className={cn('scroll-box min-h-0 px-[8px] pt-[4px] pb-[8px]', className)} {...props} />;
+  return <div data-slot="popover-list" className={cn('scroll-box mb-[8px] min-h-0 px-[8px] pt-[4px]', className)} {...props} />;
 }
 
 function PopoverItem({ current, number, className, children, ...props }: ComponentProps<'button'> & { current?: boolean; number: ReactNode }) {
