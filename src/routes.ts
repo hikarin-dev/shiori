@@ -26,4 +26,8 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   settings: { page: 'settings', app: true, header: true, installed: true },
   // A gallery's or a series' overview (?g=): 1.3's page answered it until its switch (2026-11-25).
   overview: { page: 'overview', app: true, header: true, installed: true },
+  // The reader as the one page draws it, beside 1.3's page (/reader) until it takes that address: no
+  // page of the app yet (no shiori-app meta), and not installed. Its own top bar, no common header; its
+  // stylesheet the file its own page links.
+  'reader-next': { page: 'reader', app: false, header: false, installed: false, sheets: ['app/reader.css'] },
 };

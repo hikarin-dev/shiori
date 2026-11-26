@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-nHIykoemB5spavukVbu/PL25d+brF5XTGQqOioMD3pI='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-IQ7NC/25e0bWu4WCXtgEWsNLV4TT4LLLLqhH+LBkSDs='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'">
   <title>Shiori</title>
   <style>html,body{margin:0;height:100%;background:#111;color:#888;font:14px system-ui,sans-serif;display:flex;align-items:center;justify-content:center}</style>
 </head>
@@ -20,7 +20,7 @@
   (async () => {
     const RETRY = 'shiori-sw-retry';
     // The app's addresses: the names app/js/pages.js has (this page cannot import it).
-    const KNOWN = ['library', 'settings', 'reader', 'overview', 'tasks', 'components'];
+    const KNOWN = ['library', 'settings', 'reader', 'overview', 'tasks', 'components', 'reader-next'];
     const parts = location.pathname.replace(/\/+$/, '').split('/');
     const seg = (parts.pop() || '').replace(/\.html$/, '');
     if (!KNOWN.includes(seg)) { document.body.textContent = 'Not found.'; return; }

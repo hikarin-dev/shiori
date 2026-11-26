@@ -66,9 +66,10 @@ test('what the worker leaves out is the bundle\'s files only routes it doesn\'t 
   const start = startData();
   const leftOut = notInstalled(start, ROUTES);
   const uninstalled = Object.entries(ROUTES).filter(([, route]) => !route.installed).map(([segment]) => segment);
-  // Today one such route: the comparison page; its chunk is left out. The library's, Settings' and the
-  // overview's are installed.
-  assert.deepEqual(uninstalled, ['components']);
+  // Today two such routes: the comparison page, and the reader at its interim address; their chunks are
+  // left out. The library's, Settings' and the overview's are installed.
+  assert.deepEqual(uninstalled, ['components', 'reader-next']);
+  assert.ok(leftOut.some((f) => /^assets\/reader-[\w-]+\.js$/.test(f)), 'the reader\'s chunk (beside 1.3\'s page until it takes /reader)');
   assert.ok(leftOut.some((f) => /^assets\/components-[\w-]+\.js$/.test(f)), 'the comparison page\'s chunk');
   assert.ok(!leftOut.some((f) => /^assets\/overview-[\w-]+\.js$/.test(f)), 'the overview\'s chunk is installed');
   assert.ok(!leftOut.some((f) => /^assets\/library-[\w-]+\.js$/.test(f)), 'the library\'s chunk is installed');
