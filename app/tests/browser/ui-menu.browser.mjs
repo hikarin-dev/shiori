@@ -32,7 +32,7 @@ test('the menus at rest: 1.3\'s sizes, one frame', async (t) => {
   assert.deepEqual(await style(spec('ctx-menu', 'item'), 'padding', 'border-top-left-radius', 'font-size', 'background-color'), ['7px 9px', '5px', '12px', 'rgba(0, 0, 0, 0)']);
   assert.equal((await style(spec('ctx-menu', 'item', 'hover'), 'background-color'))[0], 'rgb(42, 42, 48)');   // F30: the border's grey, as 1.3
   assert.equal((await style(spec('ctx-menu', 'item', 'disabled'), 'opacity'))[0], '0.55');
-  assert.equal((await style(spec('ctx-menu', 'danger'), 'color'))[0], 'rgb(255, 90, 54)');
+  assert.equal((await style(spec('ctx-menu', 'danger'), 'color'))[0], 'rgb(255, 77, 61)');
   const detail = await page.$eval(`${spec('ctx-menu', 'item')} [data-slot="menu-detail"]`, (el) => { const s = getComputedStyle(el); return [s.fontSize, s.lineHeight, s.marginTop, s.color]; });
   assert.deepEqual(detail, ['11px', '14.85px', '2px', 'rgb(161, 161, 170)']);
   // A key cap: 1.3's 17px in its line (F32: its text the text colour, radius 4).

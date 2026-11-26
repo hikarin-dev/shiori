@@ -21,9 +21,9 @@
   --muted: #a1a1aa;
   --muted-dim: #7c7c8c;
   --success: #06d6a0;
-  --danger: #ff5a36;
-  --danger-fill: rgb(255 90 54 / 20%);   /* a danger button's ground: its own words on it, no line */
-  --danger-fill-hover: rgb(255 90 54 / 30%);
+  --danger: #ff4d3d;
+  --danger-fill: rgb(255 77 61 / 20%);   /* a danger button's ground: its own words on it, no line */
+  --danger-fill-hover: rgb(255 77 61 / 30%);
   --debug: #2f7cf6;            /* debug views */
   --ring: #fb7185;             /* a focused text box's border */
   --backdrop: rgba(0, 0, 0, .65);

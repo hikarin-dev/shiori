@@ -34,7 +34,7 @@
     --muted-foreground: #a1a1aa;      /* secondary text; base.css --muted */
     --accent: #1c1c21;                /* the hover surface; --surface-raised */
     --accent-foreground: #f4f4f5;
-    --destructive: #ff5a36;           /* --danger. A scarlet, oklch(0.684 0.207 33.9): as strong as 1.3's red (#ff4040) and further from the brand's (F61) */
+    --destructive: #ff4d3d;           /* --danger. A warm red, oklch(0.671 0.217 29.2): near 1.3's red (#ff4040) in strength, a little further from the brand's (F61) */
     --border: #2a2a30;
     --input: #3f3f48;                 /* controls and dialog frames; --border-strong (absorbs #3a3a44) */
     --ring: #fb7185;                  /* a focused text box's border */
@@ -62,13 +62,13 @@
     --primary-tint: rgb(237 39 84 / 8%);
     --warning-tint: rgb(255 209 102 / 8%);
     --success-tint: rgb(6 214 160 / 8%);
-    --destructive-tint: rgb(255 90 54 / 8%);
+    --destructive-tint: rgb(255 77 61 / 8%);
     /* A danger button's ground, as shadcn's destructive button on its dark theme (this project's
        style, base-nova: dark:bg-destructive/20 text-destructive, dark:hover:bg-destructive/30): the
-       colour's own words on its 20%, 30% under the pointer, no line. (4.5:1 over a surface.) */
-    --destructive-fill: rgb(255 90 54 / 20%);
-    --destructive-fill-hover: rgb(255 90 54 / 30%);
-    --destructive-half: rgb(255 90 54 / 50%);   /* a line half the colour: a tag's count divider as its removal is previewed */
+       colour's own words on its 20%, 30% under the pointer, no line. (4.3:1 over a surface.) */
+    --destructive-fill: rgb(255 77 61 / 20%);
+    --destructive-fill-hover: rgb(255 77 61 / 30%);
+    --destructive-half: rgb(255 77 61 / 50%);   /* a line half the colour: a tag's count divider as its removal is previewed */
     --switch-track: #303038;
     --switch-track-border: #4a4a55;
     --switch-knob: #b3b3bf;
