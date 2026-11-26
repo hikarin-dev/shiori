@@ -20,7 +20,7 @@ import * as platform from './platform.js';
 import { folders } from './api.js';
 import { jobPlan } from './storage/folder-lifecycle.js';
 
-export const folderJobId = (id) => `folder-${id}`;
+const folderJobId = (id) => `folder-${id}`;
 const HEARTBEAT_MS = 5000;       // a running job says so this often, so a page keeps the worker awake
 const WORKER_ANSWER_MS = 2000;   // how long the worker has to say it took a job
 const _running = new Map();      // folder id → { kind, run }: the job this context runs on it
@@ -145,7 +145,7 @@ async function _runningElsewhere(key) {
 
 // Job `kind` on folder `id` run in the service worker when this page has one that takes it, else in
 // this page. Resolves where: 'worker' or 'page' (the job tells the rest).
-export async function startFolderJob(kind, id, opts = {}) {
+async function startFolderJob(kind, id, opts = {}) {
   const sw = globalThis.navigator?.serviceWorker?.controller;
   if (sw) {
     const taken = await new Promise((resolve) => {

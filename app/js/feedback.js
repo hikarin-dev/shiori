@@ -8,7 +8,7 @@ export const ISSUES = ['placement', 'readability', 'line_breaks', 'overflow', 'g
 export const sha256 = async blob => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())), b => b.toString(16).padStart(2, '0')).join('');
 const pick = (value, keys) => Object.fromEntries(keys.filter(k => value?.[k] !== undefined).map(k => [k, value[k]]));
 const bubbleKeys = ['id', 'lineIds', 'src', 'tr', 'rawTr', 'box', 'region', 'rbox', 'tbox', 'style', 'furi', 'shape'];
-export const bubbleData = b => pick(b, bubbleKeys);
+const bubbleData = b => pick(b, bubbleKeys);
 
 // Do not use imageToBlob: its URL fallback is useful to readers but feedback must be cache-only.
 async function cachedBlob(value) {

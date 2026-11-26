@@ -22,17 +22,17 @@
 // Its world is handed in (the page passes the app's), so its rules can be held in Node with stand-ins
 // (app/tests/page-thumbs.test.mjs) as well as in a browser.
 
-export const PAGE_THUMB_SCALE  = 1.5;   // a copy's width ÷ its tile's on-screen pixel width
-export const PAGE_THUMB_STEP   = 32;    // widths round up to this step, so one copy serves nearby sizes
-export const PAGE_THUMB_MAX_W  = 768;
+const PAGE_THUMB_SCALE  = 1.5;   // a copy's width ÷ its tile's on-screen pixel width
+const PAGE_THUMB_STEP   = 32;    // widths round up to this step, so one copy serves nearby sizes
+const PAGE_THUMB_MAX_W  = 768;
 export const PAGE_THUMB_FORMAT = { format: 'image/webp', quality: 0.82 };
 export const thumbWorkers = (cores: number | undefined) => Math.max(1, Math.min(4, Math.floor((cores || 4) / 4)));
 export const PAGE_CACHE_MAX    = 4000;                // as the reader's thumbnails: a long gallery's set is a few tens of MB
 export const PAGE_CACHE_BYTES  = 64 * 1024 * 1024;
 export const PAGE_MOUNT_MARGIN  = 900;
 export const PAGE_UNMOUNT_MARGIN = 5400;
-export const PAGE_ZOOM_MS = 250;
-export const PAGE_WARM_MS = 150;
+const PAGE_ZOOM_MS = 250;
+const PAGE_WARM_MS = 150;
 
 // The width a tile's copy should have: its on-screen pixels × PAGE_THUMB_SCALE, stepped.
 export function thumbWidth(tileW: number, devicePixelRatio = 1, viewportScale = 1) {

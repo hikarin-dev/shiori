@@ -22,7 +22,7 @@ export const storageSections = (caps = api.capabilities) => ({ upgrades: !!caps.
 // (settings, credentials, repair flags). Both cancel running work first so nothing can
 // repopulate the stores, and broadcast one reset so every other context drops its caches.
 
-export async function performReset(factory) {
+async function performReset(factory) {
   try {
     for (const rec of await platform.translateResume.all()) {
       cancelJob('translate', { galleryId: rec.gid, token: rec.token, serverUrl: rec.serverUrl, settings: rec.settings });
@@ -49,7 +49,7 @@ export async function performReset(factory) {
 }
 
 // Never under a backup being made or restored, in this window or another.
-export async function backupBlocksReset() {
+async function backupBlocksReset() {
   if (!(await backupRunning())) return false;
   await alertDialog({ title: t('bk.lock_title'), body: t('bk.reset_blocked'), tone: 'info' });
   return true;

@@ -10,7 +10,7 @@ import { LANG_TAG_NAME, langDisplayName } from '@lib/tag-editor.js';
 import { formatBytes, formatCount, formatMegapixels } from '@lib/format.js';
 import type { CardEnv, CardRules } from './card-view';
 
-export const CARD_RULES: CardRules = { pickTitle, pickSeriesTitle, chapterTally, memberKind, safeExternalUrl, LANG_TAG_NAME };
+const CARD_RULES: CardRules = { pickTitle, pickSeriesTitle, chapterTally, memberKind, safeExternalUrl, LANG_TAG_NAME };
 
 // The parts of an env that come from the app's modules as they are.
 export const CARD_FORMATS: Pick<CardEnv, 'count' | 'bytes' | 'megapixels' | 'langName' | 'rules'> = {

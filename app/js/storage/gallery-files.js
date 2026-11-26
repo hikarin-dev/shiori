@@ -42,7 +42,7 @@ import { migrateTitle, pickTitle, pickSeriesTitle } from '../titles.js';
 // ── Names ──
 // A name Windows (and every other system) accepts for a file or folder.
 /** @param {unknown} value @param {string} fallback @returns {string} */
-export function safeName(value, fallback) {
+function safeName(value, fallback) {
   let name = String(value || '').replace(/[\u0000-\u001f<>:"/\\|?*]/g, ' ').replace(/\s+/g, ' ').trim();
   name = name.slice(0, 100).trim().replace(/[. ]+$/, '');
   if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(name)) name = `_${name}`;
@@ -51,7 +51,7 @@ export function safeName(value, fallback) {
 
 // A chapter or volume number as a name sorts it: 1 → 001, 12.5 → 012.5.
 /** @param {number | string} n @returns {string} */
-export function padNumber(n) {
+function padNumber(n) {
   const [whole, part] = String(n).split('.');
   return whole.padStart(3, '0') + (part ? `.${part}` : '');
 }
@@ -113,7 +113,7 @@ export const BUBBLE_EXTRA_FIELDS = ['rbox', 'style', 'tbox', 'furi', 'id', 'line
 
 // The per-page JSON files hold one page per line: compact, yet easy to scan.
 /** @param {unknown[] | Record<string, unknown>} value @returns {string} */
-export const perPageJson = (value) => (Array.isArray(value)
+const perPageJson = (value) => (Array.isArray(value)
   ? `[\n${value.map((v) => JSON.stringify(v)).join(',\n')}\n]`
   : `{\n${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(',\n')}\n}`);
 

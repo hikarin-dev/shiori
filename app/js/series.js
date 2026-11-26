@@ -24,13 +24,6 @@ export function resolveSeries(galleryId) {
   return api.series.resolve(galleryId);
 }
 
-// Hydrated chapter list for the overview: each { id, title, number?, entity } in series order.
-// `entity` is the full gallery entity (or null if the chapter's gallery has gone missing — rendered
-// tolerantly).
-export function getSeriesChapters(ownerId) {
-  return api.series.chapters(ownerId);
-}
-
 // A chapter's own number from its source (a chapter-list entry's `number`: 23.5, "10.5", 0) as a
 // label, decimals kept; null when the source gave none — a series merged by hand — so callers fall
 // back to the chapter's position. Never a position: an extra (23.5) would shift every later one.

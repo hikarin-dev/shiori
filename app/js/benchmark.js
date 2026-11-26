@@ -40,7 +40,7 @@ export async function benchmarkCapabilities(settings) {
   return response.json();
 }
 
-export async function inspectBenchmarkGallery(id, { limit = 0, signal } = {}) {
+async function inspectBenchmarkGallery(id, { limit = 0, signal } = {}) {
   const keys = await api.pages.list(id);
   if (!keys.length) throw new Error(`Gallery ${id} has no stored pages`);
   const pages = [];

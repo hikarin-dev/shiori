@@ -322,7 +322,7 @@ export function slotFiles({ records, covers = {} }, fileOf) {
  * gives for a v1 folder, so one reader serves both: file(slot) (its layout name without extension:
  * translated/0001, study/text/0001-2), pages (page number → its original's file, in page order), covers.
  * @param {Manifest} m @returns {FolderPictures} */
-export function manifestPictures(m) {
+function manifestPictures(m) {
   /** @type {Map<string, string>} */
   const bySlot = new Map();
   /** @type {[number, string][]} */

@@ -3743,7 +3743,7 @@ export async function deleteStaleGalleryImages(galleryId, keepUrls) {
 
 // ── Shared state ──
 
-export const _sourceIdToGalleryId = new Map();
+const _sourceIdToGalleryId = new Map();
 const _galleryResolvePending      = new Map();
 let _lastGeneratedGalleryId       = 0;
 
@@ -3978,7 +3978,7 @@ export async function galleriesPage({ sort = 'updated', dir, offset = 0, limit =
 
 // Number of child chapters (stat records carrying a parentId). The main library subtracts this so
 // a series counts as one top-level gallery.
-export async function childGalleryCount() {
+async function childGalleryCount() {
   const db = await openDB();
   return new Promise((resolve) => {
     const tx = _tx(db, GALLERY_STORE, 'readonly');

@@ -10,7 +10,7 @@ import { formatBytes, formatCount } from './format.js';
 import { BATCH_CHANNEL, localTitles } from './import-batch.js';
 
 export const QUIET_MS = 2 * 60 * 1000;     // nothing moving this long is said
-export const LOST_MS = 20 * 1000;          // a batch silent this long has lost its runner (it says so every 5 s)
+const LOST_MS = 20 * 1000;          // a batch silent this long has lost its runner (it says so every 5 s)
 export const PAINT_EVERY_MS = 5000;        // time left, quiet and lost are read again this often
 export const TITLES_EVERY_MS = 2000;       // an open list asks for its titles again this often
 export const ROWS_STEP = 200;              // titles shown at a time

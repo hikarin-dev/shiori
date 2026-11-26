@@ -53,7 +53,7 @@ function _followTitle(id) {
 // ── The question before a drop of several titles ──
 // `groups` (import-files.js groupImports), `name` the batch's, `leftOut` the files that are none of
 // what imports, `runsIn` where it will run: 'page', 'worker' or 'app'). Resolves true to go ahead.
-export function confirmImport(groups, { name, leftOut = 0, runsIn = 'page' }) {
+function confirmImport(groups, { name, leftOut = 0, runsIn = 'page' }) {
   const bytes = groups.reduce((n, g) => n + g.files.reduce((m, f) => m + f.size, 0), 0);
   const unreadable = groups.filter((g) => g.unreadable?.length);
   const lines = [t('imp.ask_total', { n: formatCount(groups.length), size: formatBytes(bytes) })];

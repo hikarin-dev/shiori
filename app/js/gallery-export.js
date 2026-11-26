@@ -23,7 +23,7 @@ export async function fileBytes(src) {
 // Page records without what was made from the pages — translations, study layers, pipeline data
 // and masks — for an export that holds the original pages only.
 const TRANSLATION_FIELDS = ['translated', 'translatedLayers', 'bubbles', 'studyBg', 'studyPage', 'pipeline', 'own'];
-export function withoutTranslations(records) {
+function withoutTranslations(records) {
   return (records || []).map((rec) => {
     const out = { ...rec };
     for (const key of TRANSLATION_FIELDS) delete out[key];

@@ -33,7 +33,7 @@ function askWorker(message, ms) {
   });
 }
 
-export async function applyUpdate() {
+async function applyUpdate() {
   _updating = true;
   const reg = await navigator.serviceWorker?.getRegistration().catch(() => null);
   try { await reg?.update(); } catch {}

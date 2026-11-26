@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 // The page numbers shown, null for a gap. A five-page window rides with the current page, plus the
 // first and last page: 1 … 8 9 [10] 11 12 … 20. Near an edge the window reaches six pages from it
 // instead: 1 2 3 [4] 5 6 … 20. (library.js _pageNumbers, as it is.)
-export function pageNumbers(current: number, total: number): (number | null)[] {
+function pageNumbers(current: number, total: number): (number | null)[] {
   let lo = current - 2, hi = current + 2;
   if (lo <= 3) { lo = 1; hi = Math.max(hi, 6); }
   if (hi >= total - 2) { hi = total; lo = Math.min(lo, total - 5); }

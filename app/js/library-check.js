@@ -8,7 +8,7 @@
 
 import * as api from './api.js';
 
-export const INVARIANTS = {
+const INVARIANTS = {
   I1: { severity: 'error', text: 'Every metadata record is a placeholder or has a gallery entry' },
   I2: { severity: 'error', text: 'Every gallery entry has a metadata record' },
   I3: { severity: 'error', text: 'Every page belongs to a gallery entry' },
@@ -161,6 +161,6 @@ export function checkInvariants(snap) {
   };
 }
 
-export async function checkLibrary() {
+async function checkLibrary() {
   return checkInvariants(await api.maintenance.integritySnapshot());
 }

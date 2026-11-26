@@ -118,7 +118,7 @@ function _importFailed(gid, e, say) {
 // What a job's failure `e` says, by its key: a change the library refused for now — another app is using
 // its gallery's folder (reason 'not-owned' as it commits, 'taken' for a folder's own work), or the folder is
 // still being scanned after it came back ('handover') — says so (backend-error.js refusalKey).
-export const jobErrorKey = (e) => refusalKey(e) ?? (e && e.code ? `err.${e.code}` : null);
+const jobErrorKey = (e) => refusalKey(e) ?? (e && e.code ? `err.${e.code}` : null);
 
 // Start a gallery translation: upload the not-yet-translated pages and create the server-owned job.
 // Returns once it's created; the poll ticks (runPoll) drive it. Resumable: re-running only uploads
@@ -147,7 +147,7 @@ export const RUNNERS = { upload: runImport, translate: runTranslate };
 
 // Cancel a running job in THIS context. submit-job routes it to the SW when the SW owns the job.
 // Mirror of RUNNERS; only translate is cancellable. The payload carries { galleryId, token, serverUrl, settings }.
-export const CANCELLERS = { translate: (payload) => cancelTranslate(payload) };
+const CANCELLERS = { translate: (payload) => cancelTranslate(payload) };
 
 export function cancelJobRun(kind, payload) {
   const fn = CANCELLERS[kind];

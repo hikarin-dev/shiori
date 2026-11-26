@@ -21,8 +21,8 @@ import { refusedForNow as forNow } from './backend-error.js';
 import { BUBBLE_EXTRA_FIELDS } from './storage/gallery-files.js';
 import { marksOf } from './storage/personal.js';
 
-export const FORMAT = 'shiori-db';
-export const VERSION = 9;
+const FORMAT = 'shiori-db';
+const VERSION = 9;
 const PIPELINE_MASKS = ['raw', 'text'];
 
 // What can be read at once. A version 9 index or gallery JSON is small (a gallery's is tens of KB);
@@ -605,7 +605,7 @@ function _openLegacy(file, m, end) {
 }
 
 // The image type a picture's first bytes say it is, or null.
-export function imageType(b) {
+function imageType(b) {
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
   if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png';
   if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'webp';

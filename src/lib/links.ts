@@ -10,7 +10,7 @@ type Navigate = (to: string) => unknown;
 
 // Whether the one page draws the address `segment` (a path from the site's root, without slashes):
 // then it is followed inside the app; any other is a page load.
-export const drawnHere = (segment: string) => pageFile(segment) === APP_PAGE;
+const drawnHere = (segment: string) => pageFile(segment) === APP_PAGE;
 
 // Goes to `path` (from the site's root: 'settings', 'overview?g=…', '' for the library): a route
 // change for a page the one page draws, a plain navigation for any other address.

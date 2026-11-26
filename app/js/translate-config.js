@@ -20,7 +20,7 @@ const LEGACY_FIELDS = ['translator', 'targetLang', 'detector', 'detectionSize', 
 // Fields the app itself decides on every job; never stored as user parameters.
 const APP_OWNED = new Set(['study_mode_generation', 'translator.enable_post_translation_check']);
 
-export function legacyConfig(ts) {
+function legacyConfig(ts) {
   const target = ts.targetLang || 'ENG';
   const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
   return {
@@ -119,7 +119,7 @@ export function stageOf(caps, id) {
   return (caps?.stages || []).find((s) => s.id === id) || null;
 }
 
-export function paramSpecs(caps) {
+function paramSpecs(caps) {
   const specs = new Map();
   for (const stage of caps?.stages || []) {
     if (stage.implementation_param) {
@@ -154,7 +154,7 @@ function setPath(target, path, value) {
 }
 
 // The effective parameter values: the user's choices over the server's recommended defaults.
-export function effectiveParams(settings, caps) {
+function effectiveParams(settings, caps) {
   const values = {};
   for (const [key, spec] of paramSpecs(caps)) if (spec.default !== undefined) values[key] = spec.default;
   return { ...values, ...(migrateTranslateSettings(settings).params || {}) };
@@ -162,7 +162,7 @@ export function effectiveParams(settings, caps) {
 
 // Whether a parameter's `requires` hold: each named param must have the given value, or one of
 // them when a list is given.
-export function requiresMet(requires, values) {
+function requiresMet(requires, values) {
   return Object.entries(requires || {}).every(([k, v]) => (Array.isArray(v) ? v.includes(values[k]) : values[k] === v));
 }
 
@@ -200,13 +200,13 @@ export function unavailableChoices(settings, caps) {
 
 // ── Settings view model ───────────────────────────────────────────────────────────────────────
 // App-owned localization for known stages/parameters; anything else shows the server's label.
-export const STAGE_HEADING_KEYS = { detect: 'tm.detection', ocr: 'tm.ocr', translate: 'tm.translator',
+const STAGE_HEADING_KEYS = { detect: 'tm.detection', ocr: 'tm.ocr', translate: 'tm.translator',
   inpaint: 'tm.inpaint', render: 'tm.appearance' };
-export const IMPLEMENTATION_LABEL_KEYS = { detect: 'tm.detector', ocr: 'tm.ocr_model', translate: 'tm.engine',
+const IMPLEMENTATION_LABEL_KEYS = { detect: 'tm.detector', ocr: 'tm.ocr_model', translate: 'tm.engine',
   inpaint: 'tm.inpainter', render: 'tm.renderer' };
-export const STEP_NAME_KEYS = { detect: 'tm.detector', ocr: 'tm.ocr', translate: 'tm.translator',
+const STEP_NAME_KEYS = { detect: 'tm.detector', ocr: 'tm.ocr', translate: 'tm.translator',
   inpaint: 'tm.inpainter', render: 'tm.renderer' };
-export const PARAM_LABEL_KEYS = {
+const PARAM_LABEL_KEYS = {
   'detector.detection_size': 'tm.det_size', 'detector.text_threshold': 'tm.text_thr',
   'detector.box_threshold': 'tm.box_thr', 'detector.unclip_ratio': 'tm.unclip',
   'render.estimate_font_color': 'tm.est_font_color', 'render.estimate_outline_color': 'tm.est_outline_color',
@@ -221,7 +221,7 @@ export const PARAM_LABEL_KEYS = {
 };
 export const GROUP_HEADING_KEYS = { screening: 'tm.screening' };
 
-export function matchPreset(caps, values) {
+function matchPreset(caps, values) {
   for (const preset of caps?.presets || []) {
     if (Object.entries(preset.values).every(([k, v]) => values[k] === v)) return preset.id;
   }

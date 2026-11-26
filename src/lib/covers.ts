@@ -52,7 +52,7 @@ export function coverCacheKey(galleryId: unknown, preferSeries: boolean) {
   return `${String(galleryId)}:${preferSeries ? 'series' : 'gallery'}`;
 }
 const keyGalleryId = (key: string) => String(key).replace(/:(?:series|gallery)$/, '');
-export const coverRequestMatchesEntry = (msg: Control, entry: CoverGallery | undefined, merge: boolean) => !!msg.preferSeries === !!(merge && entry?.isSeries);
+const coverRequestMatchesEntry = (msg: Control, entry: CoverGallery | undefined, merge: boolean) => !!msg.preferSeries === !!(merge && entry?.isSeries);
 // The width tier a card's cover is asked at.
 export function coverTier({ innerWidth, devicePixelRatio }: { innerWidth: number; devicePixelRatio?: number }) {
   const raw = Math.ceil((innerWidth / 5) * (devicePixelRatio || 1));

@@ -47,9 +47,3 @@ export const SETTINGS_PREFS = Object.freeze({
 
 // The keys a preference is read from: its own, then any older ones.
 export const prefKeys = (key) => [key, ...(SETTINGS_PREFS[key].also || [])];
-
-// The value the control for `key` shows, from `stored` (platform.kv.get's answer for prefKeys(key)).
-export const readPref = (key, stored) => SETTINGS_PREFS[key].read(stored[key], stored);
-
-// What platform.kv.set is given when the control for `key` takes `value`.
-export const writePref = (key, value) => ({ [key]: SETTINGS_PREFS[key].write(value) });

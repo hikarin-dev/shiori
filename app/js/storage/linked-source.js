@@ -26,7 +26,7 @@ export const ARCHIVE_NAME = /\.(zip|cbz)$/i;
 export const PDF_NAME = /\.pdf$/i;
 const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 /** @param {string} a @param {string} b @returns {number} */
-export const naturalCompare = (a, b) => natural.compare(a, b);
+const naturalCompare = (a, b) => natural.compare(a, b);
 
 // Whether `p` is a path that stays inside the folder it is read against: relative, '/'-separated,
 // every segment a plain name — not empty, not made of dots and spaces only ('.', '..', '...' — which
