@@ -41,7 +41,9 @@ export function keysHost(): KeysHost {
     },
     hide() {
       if (!shown.open) return;
-      shown = { ...shown, open: false };
+      // The engine's functions go with it: kept, they would keep a stopped reader's whole scope (its
+      // frame, its pages) alive in this module until the next reader starts.
+      shown = { ...shown, open: false, actions: null };
       changed();
     },
     contains: (el) => !!el && !!box?.(el),

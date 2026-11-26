@@ -243,3 +243,55 @@ test('leaving the reader with the keys list open, or after it was opened and clo
     assert.equal(left, 0, `left ${how}`);
   }
 });
+
+// The hosts the engine shows the keys list and reader settings through are the route's modules, which
+// outlive the reader: holding the engine's own functions once closed, they kept a stopped reader's whole
+// scope, its frame among it (some 580 DOM nodes), alive until the next reader started (8f's settings
+// and this step's keys list alike: 778 nodes on Tasks after a visit that opened either, 199 after one
+// that opened neither).
+test('closed, the keys list and reader settings keep nothing of the reader: after leaving it, as many DOM nodes as after a visit that opened neither', { skip: !chromePath() }, async (t) => {
+  const page = await openPage(browser, origin);
+  t.after(async () => { await page.close(); assert.deepEqual(page.problems, []); });
+  await page.evaluateOnNewDocument(() => {
+    localStorage.setItem('shiori-reader-nav', 'top');
+    localStorage.setItem('shiori-reader-pin', '1');
+    localStorage.setItem('shiori:readerMode', JSON.stringify('single'));
+    localStorage.setItem('shiori:readerThumbsOpen', 'false');
+  });
+  await page.goto(`${origin}/tasks`, { waitUntil: 'load' });
+  await until(page, () => !!document.getElementById('tkList'), null, { what: 'Tasks' });
+  const cdp = await page.createCDPSession();
+  await cdp.send('HeapProfiler.enable');
+  const nodes = async () => {
+    let least = Infinity;
+    for (let i = 0; i < 4; i++) {
+      await cdp.send('HeapProfiler.collectGarbage');
+      least = Math.min(least, (await cdp.send('Memory.getDOMCounters')).nodes);
+      await sleep(60);
+    }
+    return least;
+  };
+  const visit = async (open) => {
+    await page.evaluate((href) => { const a = Object.assign(document.createElement('a'), { href }); document.body.append(a); a.click(); a.remove(); }, `/reader?g=${GALLERY}&page=2`);
+    await until(page, () => document.getElementById('mainImg')?.naturalWidth > 0, null, { what: 'the reader' });
+    await sleep(300);
+    for (const [key, part] of open) {
+      if (key === 'gear') await page.click('#readerSettingsBtn'); else await page.keyboard.press(key);
+      await until(page, (sel) => !!document.querySelector(sel), part, { what: part });
+      await page.keyboard.press('Escape');
+      await until(page, (sel) => !document.querySelector(sel), part, { what: `${part} closed` });
+    }
+    await page.goBack();
+    await until(page, () => !document.querySelector('.reader-frame') && !!document.getElementById('tkList'), null, { what: 'Tasks again' });
+    await sleep(300);
+    return nodes();
+  };
+  const plain = await visit([]);
+  const opened = await visit([['?', S.open], ['gear', '[data-reader-part="settings"]']]);
+  // (Chrome itself holds the element last pressed by the pointer, here the gear in the frame left, until
+  // the next press: a press on Tasks, as a person makes, lets it go.)
+  await page.mouse.click(5, 300);
+  await sleep(200);
+  const pressed = await nodes();
+  assert.ok(pressed - plain < 40, `after the keys list and reader settings ${pressed} nodes (${opened} before a press), after neither ${plain}`);
+});
