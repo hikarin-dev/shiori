@@ -20,8 +20,9 @@ async function fresh(t, fixture = false) {
     page.removeAllListeners('request');
     page.on('request', request => {
       if (request.url() === origin + '/panel-fixture') request.respond({ status: 200, contentType: 'text/html',
-        body: '<!doctype html><link rel="icon" href="data:,">' +
-          ['base', 'dropdown', 'reader', 'notice']
+        // The reader's page's own sheets, in its order, and its mark (reader.html).
+        body: '<!doctype html><html data-reader><link rel="icon" href="data:,">' +
+          ['base', 'reader-aliases', 'reader', 'notice']
             .map(name => `<link rel="stylesheet" href="/app/${name}.css">`).join('') +
           '<body><script type="module" src="/app/js/scrollbar.js"></script>' });
       else if (request.url().startsWith(origin) || request.url().startsWith('data:')) request.continue();
