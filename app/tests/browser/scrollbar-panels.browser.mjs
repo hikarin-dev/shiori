@@ -20,9 +20,9 @@ async function fresh(t, fixture = false) {
     page.removeAllListeners('request');
     page.on('request', request => {
       if (request.url() === origin + '/panel-fixture') request.respond({ status: 200, contentType: 'text/html',
-        // The reader's page's own sheets, in its order, and its mark (reader.html).
+        // The scrollbars' fixture sheet (base.css) and the reader's, with the reader's mark.
         body: '<!doctype html><html data-reader><link rel="icon" href="data:,">' +
-          ['base', 'reader-aliases', 'reader', 'notice']
+          ['base', 'reader']
             .map(name => `<link rel="stylesheet" href="/app/${name}.css">`).join('') +
           '<body><script type="module" src="/app/js/scrollbar.js"></script>' });
       else if (request.url().startsWith(origin) || request.url().startsWith('data:')) request.continue();
@@ -111,7 +111,6 @@ test('other modal bodies, lists and nested details share native styling and acce
       ['Page properties body', '<div class="pp-body"></div>', '.pp-body'],
       ['Page properties settings', '<details class="pp-details" open><summary>Settings</summary><div class="pp-detail-scroll"><dl class="pp-grid"></dl></div></details>', '.pp-detail-scroll'],
       ['Page properties text', '<details class="pp-details" open><summary>Text</summary><table class="pp-text"></table></details>', '.pp-text'],
-      ['Notice details', '<div class="notice-detail-box"></div>', '.notice-detail-box'],
     ];
     for (const [index, [name, html, selector]] of examples.entries()) {
       const owner = document.createElement('div');

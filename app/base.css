@@ -1,8 +1,9 @@
-/* base.css — what the reader's own page shares with the pages that had files of their own, loaded
-   before the page's own stylesheet: the design tokens, the reset, UI font and reduced motion, the
-   scrollbars, the tooltip, and the parts notice.js draws its notices with on such a page (the dialog
-   button, the icon button, the switch). The parts only the reader showed are in reader.css.
-   A page stylesheet adds its own parts, and where it overrides a token it says so. */
+/* base.css — what 1.3's pages with a file of their own shared (the last of them, the reader's, went on
+   2026-11-26): the design tokens, the reset, UI font and reduced motion, the scrollbars, the tooltip,
+   the dialog button, the icon button, the switch. No page links it now: it is the stylesheet of the
+   bare pages the scrollbar tests draw scrollbar.js on (app/tests/browser/scrollbar*.browser.mjs and
+   desktop/tests/scrollbars.test.mjs), until those take their own. The one page's own are
+   src/styles/ (tokens.css, document.css, scrollbars.css, tooltip.css). */
 
 @import url('../vendor/overlayscrollbars/overlayscrollbars.min.css');
 

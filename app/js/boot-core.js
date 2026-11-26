@@ -1,5 +1,5 @@
-// boot-core.js — what every page of the app starts with, whatever draws it: a page that has a file
-// of its own imports it through boot.js, the one page (src/main.tsx) by itself. (Not the agent.)
+// boot-core.js — what every page of the app starts with: the one page imports it (src/main.tsx). (Not
+// the agent, nor the desktop app's runner.)
 // Registers the in-tab services and the PWA service worker, and clears out any service worker
 // a previous Shiori layout registered at the site root.
 //

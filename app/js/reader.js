@@ -32,7 +32,7 @@ import { initPageNav } from './page-nav.js';
 // style properties it sets, toggles or removes (reader-study.js writes study-sel-lock and
 // study-text-selecting for it). Its stop puts each of these back as it was when it started, and leaves
 // every other name alone: they are other owners' (scrollbar.js's --page-scrollbar-*, the language, a
-// page's own classes), and may have changed meanwhile. reader-init.js sets three of the names before
+// page's own classes), and may have changed meanwhile. The route sets three of the names before
 // the reader starts (html.reader-side-nav, html.reader-controls-hidden, data-sn-pos and data-sn-align):
 // what it set is the page's, and is what stop puts back. The title is put back too.
 export const READER_DOCUMENT = {
@@ -164,7 +164,7 @@ const URL = class extends _rsWin.URL {
 };
 const _rsAtStart = _readerDocumentNow();   // put back by stop (READER_DOCUMENT)
 // The helpers this reader starts, first, as their modules did when they were loaded: reader-study.js's
-// document listeners, and the header's page menu (page-nav.js, which boot.js started).
+// document listeners, and the header's page menu (page-nav.js).
 startStudy();
 // Leaving for another page of the app: the address first takes the page being read (it follows at
 // most every URL_SYNC_MS), so Back finds the reader where it was left.
@@ -2670,7 +2670,7 @@ function setKeybindOpen(open) {
 let readerPinned = localStorage.getItem('shiori-reader-pin') === '1'; // default: unpinned
 // Navigation: the top bar, or the side controls (Reader settings → Navigation). Read before the
 // page draws, like the pin. The side controls are shown, or hidden until the pointer comes to them.
-let readerNavLayout = localStorage.getItem('shiori-reader-nav') === 'top' ? 'top' : 'side';   // decided by reader-init.js
+let readerNavLayout = localStorage.getItem('shiori-reader-nav') === 'top' ? 'top' : 'side';   // decided by the route (src/routes/reader/names.ts)
 let readerSidePinned = localStorage.getItem('shiori-reader-side-pin') !== '0';   // default: shown
 let readerNavWheelUps = 0;
 let readerNavLastY = window.scrollY;
@@ -2703,9 +2703,9 @@ function _applyNavChrome() {
   document.body.classList.add('reader-scroll');
   document.body.classList.toggle('reader-unpinned', !room);
   document.body.classList.toggle('reader-side-nav', side);
-  document.documentElement.classList.toggle('reader-side-nav', side);   // set early by reader-init.js
+  document.documentElement.classList.toggle('reader-side-nav', side);   // set early by the route
   document.body.classList.toggle('reader-side-hidden', side && !readerSidePinned);
-  // Fit and zoom hide with either (set early by reader-init.js).
+  // Fit and zoom hide with either (set early by the route).
   document.documentElement.classList.toggle('reader-controls-hidden', side ? !readerSidePinned : !readerPinned);
   document.body.classList.remove('reader-nav-hover');
   _hideReaderNav();
@@ -2733,7 +2733,7 @@ function applyReaderNavLayout(layout) {
 
 // Where the modern navigation stands (Reader settings → Display → Position): the rail's edge, and
 // its start, centre or end along it; the chapter pill takes the top corner on its side. Read before
-// the page draws (reader-init.js), like the navigation itself.
+// the page draws (the route: src/routes/reader/names.ts), like the navigation itself.
 const NAV_POSITIONS = ['top', 'bottom', 'left', 'right'];
 const NAV_ALIGNS = ['start', 'center', 'end'];
 let readerNavPos = NAV_POSITIONS.includes(document.documentElement.dataset.snPos) ? document.documentElement.dataset.snPos : 'right';

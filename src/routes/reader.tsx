@@ -31,7 +31,7 @@ const ReaderFrame = memo(function ReaderFrame({ go }: { go: Go }) {
     html.dataset.reader = '';
     setReaderNames(html, localStorage);
     document.title = 'Shiori — Reader';
-    applyTranslations(frame.current as unknown as Document);   // its words (boot.js filled the page's)
+    applyTranslations(frame.current as unknown as Document);   // its words (1.3's page had boot.js fill them)
     const mark = noticeMark();
     const reader = startReader({ go });
     return () => {
