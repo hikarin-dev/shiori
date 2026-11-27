@@ -159,7 +159,10 @@ for (const [path, segment] of [['/', ''], ['/library', 'library']]) test(`a hard
   const late = await page.evaluate((entry) => {
     const all = performance.getEntriesByType('resource').filter((e) => /\.m?js$/.test(new URL(e.name).pathname) && !/\/(start|font-init)\.js$/.test(e.name));
     const first = all.find((e) => e.name.endsWith(`/${entry}`));
-    return all.filter((e) => e.startTime >= first.responseEnd).map((e) => `${new URL(e.name).pathname} at ${Math.round(e.startTime)} ms, the entry arrived at ${Math.round(first.responseEnd)}`);
+    // (Not the start's: what the page's upkeep asks for, a second after the load and on (boot-core.js:
+    // migrations.js, then storage-upgrade.js). Where the route was drawn late, this read came after it.)
+    const upkeep = performance.getEntriesByType('navigation')[0].loadEventEnd + 1000;
+    return all.filter((e) => e.startTime >= first.responseEnd && e.startTime < upkeep).map((e) => `${new URL(e.name).pathname} at ${Math.round(e.startTime)} ms, the entry arrived at ${Math.round(first.responseEnd)}`);
   }, entry);
   assert.deepEqual(late, [], 'asked for later, by an import');
   assert.deepEqual(page.problems, []);
@@ -277,7 +280,10 @@ test('a hard load of /components asks for every module it runs at once, by the l
   const late = await page.evaluate((entry) => {
     const all = performance.getEntriesByType('resource').filter((e) => /\.m?js$/.test(new URL(e.name).pathname) && !/\/(start|font-init)\.js$/.test(e.name));
     const first = all.find((e) => e.name.endsWith(`/${entry}`));
-    return all.filter((e) => e.startTime >= first.responseEnd).map((e) => `${new URL(e.name).pathname} at ${Math.round(e.startTime)} ms, the entry arrived at ${Math.round(first.responseEnd)}`);
+    // (Not the start's: what the page's upkeep asks for, a second after the load and on (boot-core.js:
+    // migrations.js, then storage-upgrade.js). Where the route was drawn late, this read came after it.)
+    const upkeep = performance.getEntriesByType('navigation')[0].loadEventEnd + 1000;
+    return all.filter((e) => e.startTime >= first.responseEnd && e.startTime < upkeep).map((e) => `${new URL(e.name).pathname} at ${Math.round(e.startTime)} ms, the entry arrived at ${Math.round(first.responseEnd)}`);
   }, entry);
   assert.deepEqual(late, [], 'asked for later, by an import');
   // The UI font's faces with them, each once, there before the app drew its text.
