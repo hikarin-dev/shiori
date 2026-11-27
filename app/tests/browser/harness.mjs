@@ -111,6 +111,7 @@ export async function openPage(browser, origin, { allow = [], reader = process.e
   });
   const refused = [];
   await page.setRequestInterception(true);
+  workersInterceptedRightly(page);
   const readerModule = reader ? readerEntry(reader) : null;
   const onePageDoc = onePage ? onePageWith(onePage) : null;
   page.on('request', (req) => {
@@ -141,6 +142,27 @@ export async function openPage(browser, origin, { allow = [], reader = process.e
   page.problems = problems;
   page.refused = refused;
   return page;
+}
+
+// Puppeteer's interception pairs each paused request with the browser's report of it, and hands the
+// 'request' listeners a request bound to the session of whichever of the two came second. A request a
+// dedicated worker makes (the thumbnail worker's import of its one module) is paused on the page's
+// session and reported on the worker's: when the report comes second, which load makes likelier,
+// puppeteer continues the pause on the worker's session, where there is none, and the request waits
+// for ever. The worker never runs, and the pictures it was asked for never come (9e,
+// plans/frontend-react-probes/9e/hang.mjs: 5 copies of 60, twelve at a time with the CPU slowed six
+// times; none with interception off). So a Fetch command sent on a worker's session for a pause of
+// the page's own session is sent on the page's.
+function workersInterceptedRightly(page) {
+  const own = page._client?.();
+  if (!own) throw new Error('harness: this puppeteer has no page._client(): see workersInterceptedRightly');
+  const paused = new Set();
+  own.on('Fetch.requestPaused', (event) => paused.add(event.requestId));
+  page.on('workercreated', (worker) => {
+    const session = worker.client, send = session.send.bind(session);
+    session.send = (method, params, ...rest) =>
+      (method.startsWith('Fetch.') && paused.delete(params?.requestId) ? own.send(method, params, ...rest) : send(method, params, ...rest));
+  });
 }
 
 // Waits until `fn` (run in the page) returns something truthy; fails with what it last returned.
