@@ -28,7 +28,15 @@ function build() {
   const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);   // yyyymmddhhmmss, no leading zero
   const devVersion = `${major}.${minor}.${patch + 1}-dev.${stamp}`;
   console.log(`Building Shiori ${devVersion}…`);
-  fs.rmSync(out, { recursive: true, force: true });   // one build at a time: each installer is ~110 MB
+  try { fs.rmSync(out, { recursive: true, force: true }); }   // one build at a time: each installer is ~110 MB
+  catch (e) {
+    if (e.code !== 'EPERM' && e.code !== 'EBUSY') throw e;
+    // A program has a file of the last build open: often an editor built on Electron (VS Code), which
+    // opens an .asar it looks into as an archive and keeps it open.
+    console.error(`The last build in ${path.relative(desktop, out)} can't be removed: another program has one of its files open (${e.path ?? out}).`);
+    console.error('Close what has it open (in VS Code: "Developer: Restart Extension Host", or reload the window), then run this again.');
+    process.exit(1);
+  }
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   const run = (args) => {
