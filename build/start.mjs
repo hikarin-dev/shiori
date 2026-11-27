@@ -78,6 +78,9 @@ export function startData({ bundle = null, routes, root = ROOT }) {
   data.start = closure([entry.fileName, ...entry.dynamicImports.map((id) => resolve(entry.fileName, id)), ...START_ALSO], chunks, root)
     .filter((file) => file !== entry.fileName);
   const started = new Set([entry.fileName, ...data.start]);
+  // The stylesheets the built page links itself, in its head (the entry's and those of what it imports
+  // statically, as the bundler writes them into index.html): asked for by the page already, never again.
+  const linked = new Set(closure([entry.fileName], chunks, root).flatMap((file) => [...(chunks[file]?.viteMetadata?.importedCss ?? [])]));
 
   for (const [segment, route] of Object.entries(routes)) {
     const chunk = routeChunk(chunks, segment, route, root);
@@ -85,7 +88,7 @@ export function startData({ bundle = null, routes, root = ROOT }) {
     // two routes draw, its stylesheet with it), and the served ones it names.
     const files = closure([chunk.fileName], chunks, root);
     const styles = [...new Set(files.flatMap((file) => [...(chunks[file]?.viteMetadata?.importedCss ?? [])]))];
-    data.routes[segment].preload = [...files, ...styles, ...(route.sheets ?? [])].filter((file) => !started.has(file));
+    data.routes[segment].preload = [...files, ...styles, ...(route.sheets ?? [])].filter((file) => !started.has(file) && !linked.has(file));
     // What it may ask for later (its parts, each fetched the first time it is used): the bundle's files
     // its chunk reaches by import() and theirs, with their stylesheets.
     const reached = new Set(), queue = [chunk.fileName];

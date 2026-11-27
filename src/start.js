@@ -61,8 +61,13 @@
   // Its words first: the start-up's first module waits for them.
   const words = START.entry && lang !== 'en' ? [START.words.replace('*', lang)] : [];
   for (const path of words.concat(START.start, route ? route.preload : [])) {
-    if (path.endsWith('.css')) add('link', { rel: 'preload', as: 'style', href: root + path });
-    else add('link', { rel: 'modulepreload', href: root + path });
+    if (!path.endsWith('.css')) { add('link', { rel: 'modulepreload', href: root + path }); continue; }
+    // A preload is used only by a request made the same way: the bundle links its stylesheets as CORS
+    // requests (crossorigin), the app its own served ones (app/) plainly. (Asked for another way, the
+    // stylesheet was fetched twice.)
+    const style = { rel: 'preload', as: 'style', href: root + path };
+    if (path.indexOf('assets/') === 0) style.crossorigin = '';
+    add('link', style);
   }
   // Once the first frame is out: Chromium holds a first paint while a face is on its way, even one
   // the paint has no text in (measured: 40 ms against 84 ms, and they still come long before the

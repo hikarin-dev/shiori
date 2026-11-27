@@ -153,9 +153,13 @@ for (const [path, segment] of [['/', ''], ['/library', 'library']]) test(`a hard
   const modules = page.asked.filter((r) => r.type === 'script' && !classic.has(r.url)).map((r) => r.url);
   assert.ok(modules.length > 40, `the page ran its modules (${modules.length})`);
   assert.deepEqual(modules.filter((url) => !listed.has(url)), [], 'asked for, not on the list');
-  // The route's stylesheets are on its list too (the gallery card's, in a chunk two routes share).
+  // The route's stylesheets are on its list too (the gallery card's, in a chunk two routes share); the
+  // page's own, which index.html links in its head, is not.
   const styles = page.asked.filter((r) => r.type === 'stylesheet' && r.url.startsWith('/assets/')).map((r) => r.url);
-  assert.deepEqual(styles.filter((url) => !listed.has(url) && !url.includes('/index-')), [], 'a stylesheet not on the list');
+  const own = `/${readFileSync(join(builtSite(), 'index.html'), 'utf8').match(/<link rel="stylesheet"[^>]*href="\.\/(assets\/[^"]+\.css)"/)[1]}`;
+  assert.ok(styles.includes(own), `the page's own stylesheet (${own}) asked for`);
+  assert.equal(listed.has(own), false, 'the page\'s own stylesheet is not on the list as well');
+  assert.deepEqual(styles.filter((url) => !listed.has(url) && url !== own), [], 'a stylesheet not on the list');
   const late = await page.evaluate((entry) => {
     const all = performance.getEntriesByType('resource').filter((e) => /\.m?js$/.test(new URL(e.name).pathname) && !/\/(start|font-init)\.js$/.test(e.name));
     const first = all.find((e) => e.name.endsWith(`/${entry}`));
@@ -167,6 +171,26 @@ for (const [path, segment] of [['/', ''], ['/library', 'library']]) test(`a hard
   assert.deepEqual(late, [], 'asked for later, by an import');
   assert.deepEqual(page.problems, []);
 });
+
+// A stylesheet is fetched once: the page's own (index.html links it in its head) is not on a route's list
+// as well, and a route's is preloaded as the bundle then links it (a CORS request: a preload asked for
+// another way is not used, and the stylesheet came twice), the app's served ones plainly.
+for (const path of ['/library', '/settings', '/tasks', '/overview?g=1', '/reader?g=1']) {
+  test(`a hard load of ${path} fetches each stylesheet once`, async (t) => {
+    const page = await fresh(t);
+    if (!page) return;
+    page.release();
+    await page.goto(`${origin}${path}`, { waitUntil: 'load' });
+    // Drawn, and every stylesheet it preloaded linked.
+    await until(page, () => !!document.querySelector('#root > :not(header), .reader-frame') && [...document.querySelectorAll('link[rel="preload"][as="style"]')]
+      .every((p) => [...document.querySelectorAll('link[rel="stylesheet"]')].some((s) => s.href === p.href)), undefined, { what: 'the route drawn, its stylesheets linked' });
+    await new Promise((r) => setTimeout(r, 1000));
+    const styles = page.asked.filter((r) => /\.css$/.test(new URL(r.url, origin).pathname)).map((r) => r.url);
+    assert.ok(styles.some((url) => url.startsWith('/assets/')), `the page's stylesheet was asked for (${styles.join(', ')})`);
+    assert.deepEqual(styles.filter((url, i) => styles.indexOf(url) !== i), [], 'asked for twice');
+    assert.deepEqual(page.problems, []);
+  });
+}
 
 // Settings' header is the common one (1.3's Settings page had a header of its own: the brand on a 1.2
 // line, 12px in at 520px or less).
