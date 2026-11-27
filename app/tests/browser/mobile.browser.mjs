@@ -159,3 +159,47 @@ test('a finger raises no tooltip, and a touch puts one away; a mouse still shows
   await new Promise(r => setTimeout(r, 100));
   assert.equal(await tipShown(), false, 'a touch elsewhere puts it away');
 });
+
+// 9e: a dialog's corner X (28px drawn) and a switch (36×20) take a press 44px square around them under a
+// finger, by an area of their own: what is drawn and where is as with a mouse, and every other control
+// beside them still takes a press at its own centre. With a mouse, the press is the box drawn.
+// The hit area of `sel`: how far from its centre the point still finds it, each way (to 60px), and its box.
+function hitArea(sel) {
+  const el = document.querySelector(sel);
+  const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const mine = (x, y) => { const at = document.elementFromPoint(x, y); return !!at && (at === el || el.contains(at)); };
+  const reach = (dx, dy) => { let n = 0; for (let s = 1; s <= 60 && mine(cx + dx * s, cy + dy * s); s++) n = s; return n; };
+  // The controls beside it: those of its dialog, or of its panel (the page behind a dialog is under it).
+  const around = el.closest('[data-slot="dialog"], [role="tabpanel"]') || document;
+  const others = [...around.querySelectorAll('button, a[href], input, select, [role="switch"], [role="tab"]')].filter((o) => o !== el && !el.contains(o)).filter((o) => {
+    const b = o.getBoundingClientRect();
+    return b.width > 2 && b.height > 2 && b.top >= 0 && b.bottom <= innerHeight && document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) !== null;
+  });
+  const stolen = others.filter((o) => { const b = o.getBoundingClientRect(); return mine(b.left + b.width / 2, b.top + b.height / 2); }).map((o) => o.id || o.textContent.trim().slice(0, 20));
+  return { hit: [reach(-1, 0) + reach(1, 0) + 1, reach(0, -1) + reach(0, 1) + 1], box: [r.width, r.height, r.left, r.top], stolen };
+}
+
+test('under a finger a dialog\'s corner X and a switch take a 44px press, drawn as with a mouse; a mouse presses their box', { skip: !chromePath() }, async t => {
+  for (const finger of [true, false]) {
+    const page = await phone(t, '/settings', finger ? PHONE : { width: 390, height: 844 });
+    await page.waitForSelector('[data-slot="switch"]');
+    const sw = `#panelLibrary [data-slot="switch"]`;
+    const switches = await page.$$eval(sw, (all) => all.map((s, i) => { s.dataset.probe = String(i); return i; }));
+    assert.ok(switches.length >= 3, 'the Library panel has its switches');
+    for (const i of switches) {
+      await page.$eval(`[data-probe="${i}"]`, (el) => el.scrollIntoView({ block: 'center' }));
+      const a = await page.evaluate(hitArea, `[data-probe="${i}"]`);
+      assert.deepEqual(a.box.slice(0, 2), [36, 20], `switch ${i} drawn 36×20`);
+      assert.deepEqual(a.hit, finger ? [44, 44] : [36, 20], `switch ${i}'s press`);
+      assert.deepEqual(a.stolen, [], `switch ${i} takes no other control's press`);
+    }
+    await page.click('#aboutBtn');
+    await page.waitForSelector('#aboutClose');
+    const x = await page.evaluate(hitArea, '#aboutClose');
+    assert.deepEqual(x.box.slice(0, 2), [28, 28], 'the X drawn 28px');
+    assert.deepEqual(x.hit, finger ? [40, 44] : [28, 28], 'the X\'s press');
+    assert.deepEqual(x.stolen, [], 'the X takes no other control\'s press');
+    // About's GitHub link, 4px before the X: its own press whole, the X's area beside it (40 wide there).
+    assert.deepEqual((await page.evaluate(hitArea, '#aboutRepo')).hit, [28, 28], 'the link beside the X keeps its press');
+  }
+});

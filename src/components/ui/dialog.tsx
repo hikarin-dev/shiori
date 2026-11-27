@@ -199,15 +199,18 @@ function DialogFooter({ className, ...props }: ComponentProps<'div'>) {
   );
 }
 
-// The corner X: a borderless 28px button with its icon alone at 16, at the header row's end.
+// The corner X: a borderless 28px button with its icon alone at 16, at the header row's end. Under a
+// finger it takes a press 44px square around it (an area of its own, nothing drawn: 9px past its
+// padding box, inside the 1px frame it has, each side), the box drawn and placed as with a mouse.
+const CLOSE = 'shrink-0 pointer-coarse:relative pointer-coarse:after:absolute pointer-coarse:after:-inset-[9px]';
 function DialogClose({ className, ...props }: Omit<DialogPrimitive.Close.Props, 'className' | 'render'> & { className?: string }) {
   const t = useT();
   const still = useContext(StillContext);
-  if (still) return <Button data-slot="dialog-close" variant="ghost" size="icon" aria-label={t('common.close')} className={cn('shrink-0', className)}><X aria-hidden strokeWidth={2} /></Button>;
+  if (still) return <Button data-slot="dialog-close" variant="ghost" size="icon" aria-label={t('common.close')} className={cn(CLOSE, className)}><X aria-hidden strokeWidth={2} /></Button>;
   return (
     <DialogPrimitive.Close
       data-slot="dialog-close"
-      render={<Button variant="ghost" size="icon" aria-label={t('common.close')} className={cn('shrink-0', className)} />}
+      render={<Button variant="ghost" size="icon" aria-label={t('common.close')} className={cn(CLOSE, className)} />}
       {...props}
     >
       <X aria-hidden strokeWidth={2} />

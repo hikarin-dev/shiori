@@ -37,7 +37,8 @@ export function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChang
             <Badge id="aboutVersion" size="sm">{about?.version ?? ''}</Badge>
           </div>
           <div className="flex shrink-0 items-center gap-[4px]">
-            <Button id="aboutRepo" variant="ghost" size="icon" href="https://github.com/hikarin-dev/shiori/" target="_blank" rel="noopener noreferrer" data-tip="GitHub" aria-label="GitHub">
+            {/* Over the corner X's wider press under a finger (the X is 4px off it): its own press stays whole. */}
+            <Button id="aboutRepo" variant="ghost" size="icon" className="pointer-coarse:relative pointer-coarse:z-[1]" href="https://github.com/hikarin-dev/shiori/" target="_blank" rel="noopener noreferrer" data-tip="GitHub" aria-label="GitHub">
               <GitHubMark />
             </Button>
             <DialogClose id="aboutClose" />

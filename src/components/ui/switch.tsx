@@ -2,7 +2,7 @@
 // track with a 14px knob that slides 16px, as base.css drew .switch-control: by its `left`, not by a
 // transform (rule 29: an animated transform lifts what is painted after it onto layers, and the text
 // there changed its look while a knob slid). Its keyboard ring is the document's one ring, on the
-// track (a role="switch" element).
+// track (a role="switch" element). Under a finger it takes a press 44px square around it.
 import { Switch as SwitchPrimitive } from '@base-ui/react/switch';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +15,9 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
         'transition-[background-color,border-color] duration-base ease-standard',
         'data-checked:border-primary data-checked:bg-primary',
         'data-disabled:cursor-not-allowed data-disabled:opacity-50',
+        // Under a finger, a press 44px square around the track (an area of its own, nothing drawn: past
+        // its 34×18 padding box 5px a side and 13 above and below).
+        'pointer-coarse:after:absolute pointer-coarse:after:-inset-x-[5px] pointer-coarse:after:-inset-y-[13px]',
         typeof className === 'string' ? className : undefined,
       )}
       {...props}
