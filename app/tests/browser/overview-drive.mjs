@@ -73,10 +73,13 @@ export async function seedRun(page, origin, base, { helper = true, storage = {} 
     for (const n of Object.values(parts)) await db.refreshMedianPage(String(base + n));
     for (const part of ['S', 'W']) await db.refreshSeriesAggregate(String(base + parts[part]));
   }, { base, parts: PARTS });
+  // The page's settings go, but not the record of the migrations just run (`schemaSteps`): without it
+  // the next page ran them all again, and under load showed their progress window ("Updating your
+  // library") over the page for long enough to take a press meant for the page (9e, hang.mjs).
   await page.evaluate(async (stored) => {
     const platform = await import('/app/js/platform.js');
     for (const job of await platform.jobs.current()) await platform.jobs.clear(job.gid, job.kind);
-    for (const k of Object.keys(localStorage)) if (k.startsWith('shiori:') || k === 'shiori-ext-status') localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if ((k.startsWith('shiori:') && k !== 'shiori:schemaSteps') || k === 'shiori-ext-status') localStorage.removeItem(k);
     for (const [k, v] of Object.entries(stored)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
   }, { ...(helper ? HELPER_STATUS : {}), ...storage });
 }
