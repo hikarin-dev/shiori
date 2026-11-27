@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.4.0 — 2026-11-27
+
+### Changed
+
+- Shiori's interface is rebuilt. It looks and works as before, but going between the library, an overview, the reader, Settings and the tasks page no longer loads a new page: an overview opens at once, and **Back** returns to the page as you left it, scrolled where it was, with its covers and opened rows still there.
+- Settings and every dialog share one set of sizes for their fields, buttons and text. Menus, dialogs, notices and tooltips look and behave the same everywhere, the reader's included: its page menu, page properties, Reader settings and the keyboard shortcuts.
+- Buttons are white with a light outline, the accent colour is kept for what is on or chosen, and nothing gets darker when you point at it. The header is the same on every page.
+- Delete, remove and other actions that can't be undone are in a brighter red, told apart from the accent colour.
+- A scrollbar in a dialog or a list with rounded corners stays clear of the corners.
+- When a new version is ready while Shiori is open, open tabs keep running the version they started with and show **A new version of Shiori is ready**; **Update** brings every tab to the new version together. With every tab closed, the next visit opens the new version.
+- An update downloads only the files that changed, and Shiori opens from the files it keeps, without asking the server about each one.
+- On a phone or tablet, a dialog's close button and Settings' switches are easier to tap.
+- The Folders card says why folders can't be used in browsers that don't allow it.
+
+### Fixed
+
+- A deleted gallery stays deleted: deleting a gallery and importing it again at once, deleting one while it's translating or downloading, or replacing a PDF or archive with another of the same name no longer brings the old one back.
+- In Shiori Desktop, a library folder on a drive that stops answering no longer holds up checks of your other folders.
+- A series change made while another app uses the same folder is saved whole or not at all: part of it is no longer saved while the rest is dropped.
+
 ## v1.3.0 — 2026-11-20
 
 ### Added
