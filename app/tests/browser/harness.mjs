@@ -152,16 +152,22 @@ export async function openPage(browser, origin, { allow = [], reader = process.e
 // for ever. The worker never runs, and the pictures it was asked for never come (9e,
 // plans/frontend-react-probes/9e/hang.mjs: 5 copies of 60, twelve at a time with the CPU slowed six
 // times; none with interception off). So a Fetch command sent on a worker's session for a pause of
-// the page's own session is sent on the page's.
+// the page's own session is sent on the page's. `paused` holds the pauses the page's session holds now:
+// an id goes once a Fetch command for it is sent there (by puppeteer or from a worker's session here).
 function workersInterceptedRightly(page) {
   const own = page._client?.();
   if (!own) throw new Error('harness: this puppeteer has no page._client(): see workersInterceptedRightly');
   const paused = new Set();
   own.on('Fetch.requestPaused', (event) => paused.add(event.requestId));
+  const sendOwn = own.send.bind(own);
+  own.send = (method, params, ...rest) => {
+    if (method.startsWith('Fetch.')) paused.delete(params?.requestId);
+    return sendOwn(method, params, ...rest);
+  };
   page.on('workercreated', (worker) => {
     const session = worker.client, send = session.send.bind(session);
     session.send = (method, params, ...rest) =>
-      (method.startsWith('Fetch.') && paused.delete(params?.requestId) ? own.send(method, params, ...rest) : send(method, params, ...rest));
+      (method.startsWith('Fetch.') && paused.has(params?.requestId) ? own.send(method, params, ...rest) : send(method, params, ...rest));
   });
 }
 
