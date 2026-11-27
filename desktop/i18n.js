@@ -1,25 +1,19 @@
 // i18n.js — the desktop app's menus and dialogs in the app's language. The strings are the app's
-// own (app/js/locales.js, keys `desk.*`); the language is the one the app's window uses — or, before
-// a window has said, the one it used last time, or the system's, picked as the app picks it.
+// own (app/js/locales.js, every language's words, keys `desk.*`); the language is the one the app's
+// window uses — or, before a window has said, the one it used last time, or the system's, picked by
+// the app's own rule (app/js/languages.js).
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { UI_DIR } from './server/shared.js';
 
-const { LOCALES } = await import(pathToFileURL(path.join(UI_DIR, 'js', 'locales.js')).href);
+const load = (name) => import(pathToFileURL(path.join(UI_DIR, 'js', name)).href);
+const [{ LOCALES }, languages] = await Promise.all([load('locales.js'), load('languages.js')]);
 
-export const isLanguage = (lang) => Object.hasOwn(LOCALES, lang);
+export const isLanguage = (lang) => languages.SUPPORTED.includes(lang);
 
-// The first of `candidates` (language tags, most preferred first) the app has (app/js/i18n.js).
-export function pickLanguage(candidates = []) {
-  for (const raw of candidates) {
-    const tag = String(raw);
-    if (isLanguage(tag)) return tag;
-    if (/^zh\b/i.test(tag)) return 'zh-CN';
-    const base = tag.slice(0, 2).toLowerCase();
-    if (isLanguage(base)) return base;
-  }
-  return 'en';
-}
+// The first of `candidates` (language tags, most preferred first) the app has, as a page with no
+// language chosen picks it.
+export const pickLanguage = (candidates = []) => languages.pickLanguage(null, candidates);
 
 // t(key, vars) for `lang`: the desktop string `desk.<key>`, English when a language lacks it,
 // {placeholders} filled from vars.
