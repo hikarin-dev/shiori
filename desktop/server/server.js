@@ -57,9 +57,10 @@ const JOB_ENDED = new Set(['done', 'error', 'cancelled']);
 const MAX_FRAME = 1 << 30;
 
 // What of the web root is served: the app (its pages, the one page with its first script and its
-// bundle in assets/) and what its pages load, nothing else. The root is the built site; its service worker (sw.js) is not
-// among it — a page this server serves has the files at hand, and no worker.
-const PUBLIC = new Set(['app', 'assets', 'icons', 'vendor', 'index.html', 'start.js', 'shell-files.js', 'CHANGELOG.md']);
+// bundle in assets/) and what its pages load, nothing else. The root is the built site; its service
+// worker (sw.js, and the list of files it keeps, shell-files.js) is not among it — a page this server
+// serves has the files at hand, and no worker.
+const PUBLIC = new Set(['app', 'assets', 'icons', 'vendor', 'index.html', 'start.js', 'CHANGELOG.md']);
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.webmanifest': 'application/manifest+json',

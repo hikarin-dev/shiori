@@ -57,15 +57,16 @@ test('an old page\'s file, gone since the one page draws its address, is sent on
 test('the bundle and what the pages load are served; the rest of the web root is not', async (t) => {
   const get = await serve(t);
   for (const [pathname, type] of [['/assets/app-abc12345.js', /^text\/javascript/], ['/assets/app-abc12345.css', /^text\/css/],
-    ['/icons/icon32.png', /^image\/png/], ['/vendor/x.js', /^text\/javascript/], ['/CHANGELOG.md', /^text\/markdown/], ['/shell-files.js', /^text\/javascript/],
+    ['/icons/icon32.png', /^image\/png/], ['/vendor/x.js', /^text\/javascript/], ['/CHANGELOG.md', /^text\/markdown/],
     ['/start.js', /^text\/javascript/]]) {
     const res = await get(pathname);
     assert.equal(res.status, 200, pathname);
     assert.match(res.headers.get('content-type'), type, pathname);
   }
-  // No worker for a page this server serves; no tests; nothing else that happens to lie there;
-  // no address the map doesn't have, by any name an object answers to.
-  for (const pathname of ['/sw.js', '/404.html', '/app/tests/x.test.mjs', '/package.json', '/nowhere', '/constructor', '/__proto__', '/assets/missing.js']) {
+  // No worker for a page this server serves (nor the worker's list of files, which only the worker
+  // read); no tests; nothing else that happens to lie there; no address the map doesn't have, by any
+  // name an object answers to.
+  for (const pathname of ['/sw.js', '/shell-files.js', '/404.html', '/app/tests/x.test.mjs', '/package.json', '/nowhere', '/constructor', '/__proto__', '/assets/missing.js']) {
     assert.equal((await get(pathname)).status, 404, pathname);
   }
 });
