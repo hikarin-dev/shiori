@@ -373,6 +373,9 @@ test('the long language picker keeps native wheel input and keyboard selection',
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => !document.getElementById('langSelect').hasAttribute('data-popup-open'));
+  // (The box says the language chosen once its words are in: a language is a file of its own, loaded
+  // when it is chosen, a moment after the list has closed.)
+  await page.waitForFunction((was) => document.getElementById('langSelect').dataset.value !== was, { timeout: 5000 }, initial).catch(() => {});
   assert.notEqual(await page.$eval('#langSelect', (el) => el.dataset.value), initial, 'keyboard selection must still reach the wrapped options');
   await page.evaluate(() => localStorage.setItem('shiori-lang', 'en'));
 });
