@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 // The app's pages: the packaged copy in an installed build; in development the built site (dist/ at
 // the repository's root), which refuses to start on a build that is missing or older than its
-// sources — `npm run build` there first.
+// sources — `npm start` builds it first.
 const UI_ROOT = app.isPackaged ? path.join(process.resourcesPath, 'ui') : (await import('../build/built.mjs')).builtSite();
 process.env.SHIORI_UI_DIR = path.join(UI_ROOT, 'app');
 // Where this run keeps its settings (overridable, so a test run never touches a person's own).

@@ -35,7 +35,7 @@ function build() {
     const r = spawnSync(process.execPath, args, { cwd: desktop, env, stdio: 'inherit' });
     if (r.status !== 0) process.exit(r.status || 1);
   };
-  run([path.join(desktop, 'scripts', 'stage-ui.mjs')]);
+  run([path.join(desktop, 'scripts', 'stage-ui.mjs')]);   // the site built, then staged
   run([path.join(desktop, 'node_modules', 'electron-builder', 'cli.js'), '--win', '--publish', 'never',
     `--config.directories.output=${out}`, `--config.extraMetadata.version=${devVersion}`,
     '--config.detectUpdateChannel=false']);   // latest.yml, which developer mode reads, even for a -dev version

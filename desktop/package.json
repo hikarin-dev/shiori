@@ -7,7 +7,7 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "npm --prefix .. run build && electron .",
     "test": "node --test --test-force-exit tests/*.test.mjs",
     "stage": "node scripts/stage-ui.mjs",
     "pack": "node scripts/stage-ui.mjs && electron-builder --win --dir",

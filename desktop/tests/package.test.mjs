@@ -29,3 +29,19 @@ test('every module the desktop app loads is in the installer', () => {
   assert.ok(seen.size > 5, `followed ${[...seen].join(', ')}`);
   assert.deepEqual(missing, []);
 });
+
+// The app runs on the built site (main.js in development, resources/ui once packaged), so each way of
+// running or packaging it builds the site first, once, rather than refusing a build that is missing or
+// older than its sources: `start` before Electron, the others through the staging script.
+test('start, pack, dist and dev-update each build the site first', () => {
+  const { scripts } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+  assert.match(scripts.start, /^npm --prefix \.\. run build && electron \.$/);
+  for (const name of ['pack', 'dist']) assert.match(scripts[name], /^node scripts\/stage-ui\.mjs && electron-builder /, name);
+  const devUpdate = read('scripts/dev-update.mjs');
+  assert.ok(devUpdate.indexOf("'stage-ui.mjs'") > 0 && devUpdate.indexOf("'stage-ui.mjs'") < devUpdate.indexOf("'electron-builder'"), 'dev-update stages before it packs');
+  const stage = read('scripts/stage-ui.mjs');
+  const built = stage.indexOf("spawnSync('npm run build', { cwd: repo");
+  assert.ok(built > 0 && built < stage.indexOf('builtSite()', built) && stage.indexOf('builtSite()', built) < stage.indexOf('fs.cpSync('),
+    'the staging builds the site, checks it, then copies it');
+});
