@@ -1,8 +1,9 @@
 // app-update.js — tells the user when a newer version of the app is ready, and applies it everywhere
-// at once. A new version shows up two ways: the service worker is replaced (a new sw.js takes
-// over), or the worker finds an app file changed on the server when it checks its cached copy.
-// Updating brings every cached file up to date, then reloads this tab, every other app tab and the
-// app's other pages (its agent), so nothing keeps running the old code.
+// at once. A new version shows up as a new service worker: one waiting (it doesn't take over the
+// pages of the version in charge: they load code late, which another version doesn't have), or one
+// that took over (a version whose pages can't be asked: 1.3's). Updating tells a waiting worker to
+// take over, then reloads this tab, every other app tab and the app's other pages (its agent), so
+// nothing keeps running the old code.
 
 import * as platform from './platform.js';
 import { t } from './i18n.js';
@@ -37,12 +38,18 @@ async function applyUpdate() {
   _updating = true;
   const reg = await navigator.serviceWorker?.getRegistration().catch(() => null);
   try { await reg?.update(); } catch {}
-  // A new worker takes over by itself once installed: wait for it before refreshing the files.
+  // A new worker installing or waiting: told to take over once it has installed (and once no batch
+  // of imports runs in the worker it replaces, which would end with it), then waited for.
   if (reg?.installing || reg?.waiting) {
-    await new Promise((resolve) => {
+    const changed = new Promise((resolve) => {
       navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
       setTimeout(resolve, 20000);
     });
+    const installing = reg.installing;
+    if (installing) await new Promise((resolve) => { installing.addEventListener('statechange', resolve, { once: true }); setTimeout(resolve, 20000); });
+    while (reg.waiting && await platform.jobs.workerImporting()) await new Promise((resolve) => setTimeout(resolve, 1000));
+    reg.waiting?.postMessage({ __shioriTakeOver: true, by: 'update' });
+    await changed;
   }
   await askWorker({ __shioriRefreshShell: true }, 30000);
   platform.control.send({ type: 'APP_UPDATED', context: platform.contextId });
@@ -58,8 +65,20 @@ if ('serviceWorker' in navigator) {
   });
   // A newer worker kept waiting while the one in charge imported (sw.js install) takes over once
   // nothing is being imported: should that worker have stopped mid-import, it would wait for ever.
+  // (One kept waiting for this version's pages takes over only by their Update: sw.js.)
   navigator.serviceWorker.getRegistration().then(async (reg) => {
     if (reg?.waiting && !await platform.jobs.workerImporting()) reg.waiting.postMessage({ __shioriTakeOver: true });
+  }).catch(() => {});
+  // A newer version waiting for the pages of the one in charge of this page (of its kind: the site's
+  // library kept here or by the desktop app), now or once one found while this page is open has
+  // installed. (Once a worker is in charge: on a first visit, once the first has installed.)
+  navigator.serviceWorker.ready.then((reg) => {
+    const waits = (worker) => !!worker && worker.scriptURL === navigator.serviceWorker.controller?.scriptURL && reg.waiting === worker;
+    if (waits(reg.waiting)) offer();
+    reg.addEventListener('updatefound', () => {
+      const worker = reg.installing;
+      worker?.addEventListener('statechange', () => { if (worker.state === 'installed' && waits(worker)) offer(); });
+    });
   }).catch(() => {});
   let last = Date.now();
   document.addEventListener('visibilitychange', () => {

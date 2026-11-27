@@ -104,22 +104,48 @@ self.addEventListener('install', (e) => {
     // fetch, or a copy that isn't this release's, fails the whole install and the old worker + cache
     // stay in place.
     await Promise.all(BOOT.map(async (u) => cache.put(new URL(u, ROOT).href, await heldCopy(u, held) ?? await releaseCopy(u))));
-    // What comes later is copied where it is held, and otherwise fetched when the app is idle.
-    await Promise.all(DEFERRED.map(async (u) => {
-      const copy = await heldCopy(u, held).catch(() => null);
-      if (copy) await cache.put(new URL(u, ROOT).href, copy);
-    }));
+    // The pages of a release that can be asked (the one page's) are never answered by this worker
+    // while they run: they load code late, by names another build doesn't have, and would run a mix
+    // of two builds. This worker waits, the one before it and its cache staying whole and in charge
+    // of every open page and of any tab opened meanwhile; the pages show the update notice, and the
+    // person's Update tells it to take over (app-update.js). With every tab closed, the browser lets
+    // it take over by itself. 1.3's pages can't be asked (theirs learn of a new release when the
+    // worker changes): it takes over at once, as it always did.
+    if (await pagesCanAsk()) return;
     // A batch of imports running in the worker this one replaces would end with it: then this one
     // waits, and takes over once that worker's imports are done (__shioriTakeOver).
     if (!await platform.jobs.workerImporting()) self.skipWaiting();
   })());
 });
 
+// Whether the pages of the release in charge can be asked to update. Asked of that release's worker
+// itself, which is the only thing that can answer for it (a cache's name or contents can be left by
+// other code: 1.3's worker keeps on demand whatever a page asks it for); 1.3's has no answer, and no
+// answer within ASK_MS is a release that can't. No worker in charge: none to ask.
+const ASK_MS = 3000;
+function pagesCanAsk() {
+  const before = self.registration.active;
+  if (!before) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const answer = (asks) => { clearTimeout(timer); channel.port1.close(); resolve(asks); };
+    const timer = setTimeout(() => answer(false), ASK_MS);
+    channel.port1.onmessage = (e) => answer(e.data?.pagesAsk === true);
+    before.postMessage({ __shioriPagesAsk: true }, [channel.port2]);
+  });
+}
+
 // Pull in the deferred assets once the app is up and idle (boot-core.js asks for this from its
 // maintenance window). Anything still missing when it is first needed is cached on demand by
 // the fetch handler below, so offline completeness fills in either way — this just gets there
-// without a user waiting on it. Already-cached entries are skipped, making re-runs cheap.
+// without a user waiting on it. Already-cached entries are skipped, making re-runs cheap. (Asked of a
+// worker still taking over, it waits for that: taking over copies what a cache before it holds.)
 async function warmDeferredShell() {
+  const me = self.serviceWorker;
+  if (me && me.state !== 'activated') {
+    await new Promise((resolve) => me.addEventListener('statechange', () => { if (me.state === 'activated' || me.state === 'redundant') resolve(); }));
+    if (me.state !== 'activated') return;
+  }
   const cache = await caches.open(await cacheName());
   const missing = [];
   for (const u of DEFERRED) if (!(await cache.match(new URL(u, ROOT).href))) missing.push(u);
@@ -130,6 +156,15 @@ self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
     const current = await cacheName();
     const keys = await caches.keys();
+    // What comes later is copied where a cache before this one holds it (copied now, not at the
+    // install: a worker kept waiting holds only its first tier beside the release in charge), and
+    // otherwise fetched when the app is idle.
+    const cache = await caches.open(current);
+    const held = await Promise.all(keys.filter((k) => isStaleShellCache(k, current)).map((k) => caches.open(k)));
+    await Promise.all(DEFERRED.map(async (u) => {
+      const copy = await heldCopy(u, held).catch(() => null);
+      if (copy) await cache.put(new URL(u, ROOT).href, copy);
+    }));
     // Delete only OUR prefix (never a sibling app's caches), plus the app's own historical
     // unprefixed name from before cache names were root-scoped.
     await Promise.all(keys
@@ -274,7 +309,14 @@ function handOverWhenIdle() {
 
 self.addEventListener('message', (e) => {
   const d = e.data;
-  if (d && d.__shioriTakeOver) { self.skipWaiting(); return; }
+  // A release before this one whose pages can be asked is replaced only by a page's Update (`by`); any
+  // other hand-over (its worker's imports done, a page of 1.3 as it starts) counts where they can't.
+  if (d && d.__shioriTakeOver) {
+    e.waitUntil((async () => { if (d.by === 'update' || !await pagesCanAsk()) self.skipWaiting(); })());
+    return;
+  }
+  // This release's pages can be asked to update (pagesCanAsk, from the worker after it).
+  if (d && d.__shioriPagesAsk) { e.ports[0]?.postMessage({ pagesAsk: true }); return; }
   if (d && d.__shioriWarmShell) { e.waitUntil(warmDeferredShell().catch(() => {})); return; }
   // Updating: a page asks for its files to be brought up to date before it reloads (answered on the
   // port). They are: the cache is this release, whole.

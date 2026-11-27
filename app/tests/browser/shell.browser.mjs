@@ -277,6 +277,60 @@ test('straight after the install, the later part not fetched yet, every page ope
   assert.equal(await page.evaluate(() => document.getElementById('tkEmpty').textContent), LOCALES.de['tasks.empty']);
 });
 
+// The pages of a release load code late, by names another build doesn't have: a newer worker that took
+// them over would answer them with another build's files. So it waits, and every open page, and one
+// opened meanwhile, shows the update notice; Update in one of them brings every tab to the new release.
+test('a newer release waits while pages of this one are open: each shows the notice, and Update in one brings every tab to it', async (t) => {
+  if (!browser) { t.skip('Chrome not found (set CHROME_PATH)'); return; }
+  const http = await import('node:http');
+  const { LOCALES } = await import('../../js/locales.js');
+  const site = await startServer();
+  // A front of its own, which serves the next release's sw.js once told to (the same files, another worker).
+  let next = false;
+  const front = http.createServer((req, res) => {
+    if (next && new URL(req.url, 'http://x').pathname === '/sw.js') {
+      readFile(join(builtSite(), 'sw.js')).then((body) => res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-cache' })
+        .end(Buffer.concat([body, Buffer.from('\n// the next release\n')])));
+      return;
+    }
+    const ask = http.request({ host: '127.0.0.1', port: site.port, path: req.url, method: req.method, headers: req.headers }, (answer) => {
+      res.writeHead(answer.statusCode, answer.headers);
+      answer.pipe(res);
+    });
+    ask.on('error', () => res.writeHead(502).end());
+    req.pipe(ask);
+  });
+  await new Promise((r) => front.listen(0, '127.0.0.1', r));
+  const at = `http://127.0.0.1:${front.address().port}`;
+  t.after(() => { front.close(); site.server.close(); });
+  const page = await fresh(t, { site: at });
+  await page.goto(`${at}/tasks`, { waitUntil: 'load' });
+  await until(page, async () => (await navigator.serviceWorker.getRegistration())?.active?.state === 'activated' && !!navigator.serviceWorker.controller,
+    undefined, { what: 'the worker in charge', timeout: 30000 });
+  const other = await page.browserContext().newPage();
+  await other.goto(`${at}/settings`, { waitUntil: 'load' });
+  await until(other, () => !!navigator.serviceWorker.controller && !!document.getElementById('clearAllBtn'), undefined, { what: 'Settings, the worker in charge' });
+  const notice = (text) => [...document.querySelectorAll('[data-slot="toast"]')].some((el) => el.textContent.includes(text));
+
+  next = true;
+  await page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r.update()));
+  await until(page, async () => (await navigator.serviceWorker.getRegistration()).waiting?.state === 'installed', undefined, { what: 'the next worker installed', timeout: 30000 });
+  for (const [p, what] of [[page, 'Tasks'], [other, 'Settings']]) await until(p, notice, LOCALES.en['update.available'], { what: `the notice in ${what}` });
+  // One opened meanwhile: the release in charge answers it, and it shows the notice too.
+  const third = await page.browserContext().newPage();
+  await third.goto(`${at}/library`, { waitUntil: 'load' });
+  await until(third, notice, LOCALES.en['update.available'], { what: 'the notice in a tab opened meanwhile' });
+  assert.equal(await third.evaluate(async () => (await navigator.serviceWorker.getRegistration()).waiting?.state), 'installed', 'still waiting');
+
+  for (const p of [page, other, third]) await p.evaluate(() => { window.before = true; });
+  await page.evaluate((label) => [...document.querySelectorAll('[data-slot="toast"] button')].find((b) => b.textContent.trim() === label).click(), LOCALES.en['update.now']);
+  for (const [p, what] of [[page, 'Tasks'], [other, 'Settings'], [third, 'the library']]) {
+    await until(p, async () => !window.before && !!navigator.serviceWorker.controller && !(await navigator.serviceWorker.getRegistration()).waiting,
+      undefined, { what: `${what} reloaded under the next worker`, timeout: 30000 });
+  }
+  assert.deepEqual(page.problems, []);
+});
+
 test('the comparison page, not installed, opens with the network and is kept from then on', async (t) => {
   const page = await fresh(t);
   if (!page) return;

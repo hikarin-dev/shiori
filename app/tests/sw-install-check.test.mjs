@@ -64,23 +64,33 @@ function server(other = {}) {
   return { fetch, asked };
 }
 
-// The built sw.js in a worker scope of its own: its listeners and its caches.
+// The built sw.js in a worker scope of its own: its listeners, its caches, and each time it asked to
+// take over. `before`: the worker in charge (registration.active), or none.
 let instance = 0;
-async function worker(fetch) {
+async function worker(fetch, { before = null } = {}) {
   const listeners = {};
+  const took = [];
   globalThis.caches = memoryCaches();
   globalThis.fetch = fetch;
   globalThis.self = {
     location: { href: `${ORIGIN}/sw.js`, origin: ORIGIN },
     addEventListener: (type, fn) => { listeners[type] = fn; },
     clients: { claim: async () => {} },
-    skipWaiting() {},
-    registration: { update: async () => {}, active: null, waiting: null },
+    skipWaiting() { took.push(Date.now()); },
+    registration: { update: async () => {}, active: before, waiting: null },
   };
   await import(`${new URL('sw.js', siteUrl).href}?check-${++instance}`);
   Object.assign(IDBObjectStore.prototype, { put, add });
-  return { listeners, caches: globalThis.caches };
+  return { listeners, caches: globalThis.caches, took };
 }
+// The worker in charge as another worker sees it: one of this release's kind answers whether its pages
+// can be asked (its own message listener, `answers`); 1.3's has no answer.
+const beforeWorker = (answers) => ({ postMessage(data, ports) { if (answers) answers({ data, ports, waitUntil() {} }); } });
+const dispatch = (listener, event) => new Promise((resolve, reject) => {
+  const waited = [];
+  listener({ ...event, waitUntil: (p) => waited.push(p) });
+  Promise.all(waited).then(resolve, reject);
+});
 const install = (sw) => new Promise((resolve, reject) => {
   sw.listeners.install({ waitUntil: (p) => p.then(resolve, reject) });
 });
@@ -145,7 +155,10 @@ test('an update copies what the caches before it hold as this release has it, an
   await install(sw);
   assert.deepEqual(srv.asked.map((a) => new URL(a.url).pathname), ['/app/js/format.js'], 'only the changed file is fetched');
   const cache = await sw.caches.open(name);
-  assert.equal(cache.m.size, SHELL.length, 'every file, the idle tier\'s too, copied');
+  assert.equal(cache.m.size, BOOT.length, 'the install holds the first tier (a worker kept waiting holds no more beside the release in charge)');
+  await dispatch(sw.listeners.activate, {});
+  assert.equal(cache.m.size, SHELL.length, 'taking over, it copies the idle tier\'s too');
+  assert.deepEqual(await sw.caches.keys(), [name], 'and the cache before it goes');
   assert.equal(await (await cache.match(`${ORIGIN}/app/js/format.js`)).text(), readFileSync(join(site, 'app/js/format.js'), 'utf8'), 'the changed file as this release has it');
 });
 
@@ -163,4 +176,43 @@ test('a file fetched on first use is kept only as this release has it', async ()
     await Promise.all(waited);
     assert.equal(!!await (await shellCache(sw)).match(`${ORIGIN}/${font}`), kept, kept ? 'this release\'s copy is kept' : 'another copy is answered, not kept');
   }
+});
+
+// A release of the one page loads code late, by names another build doesn't have: a worker that took
+// over its open pages would answer them with another build's files. So a new worker waits where the
+// release in charge says its pages can be asked (they show the notice, and Update tells it to take
+// over), and takes over at once where it says nothing (1.3, whose pages learn of a new release when the
+// worker changes).
+test('a new worker waits where the release in charge has pages that can be asked, and takes over only by their Update', async () => {
+  const older = await worker(server().fetch);
+  const sw = await worker(server().fetch, { before: beforeWorker((event) => older.listeners.message(event)) });
+  await install(sw);
+  assert.deepEqual(sw.took, [], 'installed, it waits');
+  await dispatch(sw.listeners.message, { data: { __shioriTakeOver: true }, ports: [] });
+  assert.deepEqual(sw.took, [], 'a hand-over that is not the person\'s Update (the worker before\'s imports done, a page as it starts) leaves it waiting');
+  await dispatch(sw.listeners.message, { data: { __shioriTakeOver: true, by: 'update' }, ports: [] });
+  assert.equal(sw.took.length, 1, 'Update: it takes over');
+});
+
+test('a new worker takes over at once where the release in charge has no answer (1.3), or there is none', async () => {
+  const started = Date.now();
+  const after13 = await worker(server().fetch, { before: beforeWorker(null) });
+  await install(after13);
+  assert.equal(after13.took.length, 1, 'after 1.3: at once, once the question has gone unanswered');
+  assert.ok(Date.now() - started >= 2900, 'it waited for an answer first');
+  await dispatch(after13.listeners.message, { data: { __shioriTakeOver: true }, ports: [] });
+  assert.equal(after13.took.length, 2, 'and 1.3\'s hand-over (its imports done) counts');
+  const first = await worker(server().fetch);
+  await install(first);
+  assert.equal(first.took.length, 1, 'a first install: at once');
+});
+
+test('the worker in charge says its pages can be asked', async () => {
+  const sw = await worker(server().fetch);
+  const answered = await new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = (e) => { channel.port1.close(); resolve(e.data); };
+    sw.listeners.message({ data: { __shioriPagesAsk: true }, ports: [channel.port2], waitUntil() {} });
+  });
+  assert.deepEqual(answered, { pagesAsk: true });
 });
